@@ -1,16 +1,5 @@
 {
-  "users": [
-    {
-      "id": "usr-1792842169720",
-      "name": "Amina Khalil",
-      "phone": "+201012345678",
-      "role": "rider",
-      "gender": "female",
-      "uperGirlOption": true,
-      "registeredAt": "2026-10-24T11:42:49.720Z",
-      "verified": true
-    }
-  ],
+  "users": [],
   "drivers": [],
   "rides": [],
   "sos": []

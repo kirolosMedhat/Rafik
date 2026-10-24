@@ -218,6 +218,56 @@ app.post('/api/register', (req: Request, res: Response): void => {
     };
 
     usersStore.set(cleanPhone, userRecord);
+
+    // If registered as driver, add to drivers queue with status 'pending'
+    if (userRecord.role === 'driver') {
+      const driverId = `drv-${cleanPhone.replace(/[^0-9]/g, '')}`;
+      const isGirl = userRecord.gender === 'female' && userRecord.uperGirlOption;
+      const newDriver: DriverRecord = {
+        id: driverId,
+        name: userRecord.name,
+        phone: userRecord.phone,
+        email: `${cleanPhone.replace(/[^0-9]/g, '')}@rafik.app`,
+        nationalId: '29804150102844',
+        gender: userRecord.gender,
+        genderVerified: userRecord.gender === 'female',
+        tier: isGirl ? 'uper_girl' : 'standard',
+        isUperGirlCertified: isGirl,
+        vehicle: {
+          make: 'Toyota',
+          model: 'Corolla',
+          year: 2023,
+          plateAr: 'ق أ هـ 7 4 2 9',
+          plateEn: 'QAH 7429',
+          color: isGirl ? 'Rose Gold Metallic' : 'Obsidian Black',
+        },
+        licenseNumber: 'DL-CAI-2023-7429',
+        status: 'pending',
+        rating: 5.0,
+        tripsCount: 0,
+        walletBalance: 0.0,
+        location: {
+          lat: 30.0444,
+          lng: 31.2357,
+          heading: 0,
+          lastUpdated: new Date().toISOString(),
+        },
+        documents: {
+          nationalIdFront: 'https://images.unsplash.com/photo-1578357078586-491adf1aa5ba?w=600',
+          nationalIdBack: 'https://images.unsplash.com/photo-1578357078586-491adf1aa5ba?w=600',
+          licenseFront: 'https://images.unsplash.com/photo-1544717305-2782549b5136?w=600',
+          licenseBack: 'https://images.unsplash.com/photo-1544717305-2782549b5136?w=600',
+          mulkiyaFront: 'https://images.unsplash.com/photo-1549317661-bd32c8ce0db2?w=600',
+          mulkiyaBack: 'https://images.unsplash.com/photo-1549317661-bd32c8ce0db2?w=600',
+        },
+        onboardedAt: new Date().toISOString(),
+      };
+
+      driversStore.set(driverId, newDriver);
+      io.emit('driver_registered', newDriver);
+      console.log(`📋 [PENDING REGISTRATION] Captain ${newDriver.name} (${newDriver.phone}) submitted for admin review.`);
+    }
+
     persistAll();
 
     console.log(`✅ [DATABASE] User registered & saved: ${userRecord.name} (${userRecord.phone}) - Role: ${userRecord.role}`);
