@@ -1,11 +1,12 @@
 # Rafik (رَفِيق) — Next-Generation Ride-Hailing Platform
 
-[![Platform](https://img.shields.io/badge/Platform-Flutter%20%7C%20Node.js%20%7C%20Supabase-blue.svg)](https://flutter.dev)
-[![Status](https://img.shields.io/badge/Status-Production%20Ready-success.svg)]()
+[![Platform](https://img.shields.io/badge/Platform-Flutter%20%7C%20Supabase-blue.svg)](https://flutter.dev)
+[![Status](https://img.shields.io/badge/Status-Production%20Hardened-success.svg)]()
+[![Security](https://img.shields.io/badge/Security-RLS%20%2B%20SECURITY%20DEFINER%20RPCs-emerald.svg)]()
 [![Copyright](https://img.shields.io/badge/Copyright-Rafik%202026-rose.svg)]()
 
 > **All rights reserved to Rafik 2026.**  
-> *Rafik (رَفِيق)* is a modern, high-performance Egyptian ride-hailing ecosystem featuring a seamless dual-tier architecture: **Rafik Standard** and the dedicated **Rafik Girl** women-centric safety network.
+> *Rafik (رَفِيق)* is an enterprise-grade Egyptian ride-hailing ecosystem built on a pure, serverless **Supabase Cloud** architecture (PostgreSQL, PostGIS, Row Level Security, RPCs, Realtime, and private Storage). It features a dual-tier service model: **Rafik Standard** and the dedicated **Rafik Girl** women-centric safety network.
 
 ---
 
@@ -19,57 +20,65 @@ Rafik is designed specifically for Greater Cairo’s transit dynamics, addressin
    - **Signature Visual Identity:** Sleek Jet Black (`#000000`) and Titanium Ice Blue (`#3B82F6`) palette.
    - Fair and transparent Cairo pricing with 0% platform commission on promotional trips.
 2. **Rafik Girl (رَفِيق جيرل)**
-   - A dedicated, secure ride-hailing option exclusively pairing female passengers with rigorously verified female captains.
+   - A dedicated, secure ride-hailing option exclusively pairing verified female passengers with verified female captains.
    - **Signature Visual Identity:** Obsidian Berry (`#12080C`) and Egyptian Rose Gold (`#B76E79`) luxury theme.
-   - Enhanced security features, automatic route monitoring, and strict gender validation.
+   - Enhanced security features, automatic route monitoring, 13th-digit National ID validation, and manual admin verification.
 
 ---
 
-## 🚀 Key Features
+## 🏛️ Pure Supabase Architecture
 
-### 📱 1. Mobile Applications (Flutter)
-- **Unified Dual-Flavored Codebase:**
-  - `Rafik-Rider.apk`: Passenger booking, route selection, live fare estimates, driver tracking, and SOS safety shield.
-  - `Rafik-Driver.apk`: Real-time dispatch radar, 1-tap "Go Online", route navigation, in-ride chat, earnings wallet, and 6-sided document vault.
-- **Dynamic Adaptive UI & Theme Switching:**
-  - Auto-switches between Jet Black (Male) and Obsidian Berry / Rose Gold (Female) based on selected gender profile.
-  - OLED Night / Dark Mode by default.
-- **Bilingual Interface:**
-  - English by default with instant 1-tap Arabic toggle (🌐 EN | عربي).
-- **Streamlined Authentication & Intake:**
-  - Dual tabs for **Log In** and **Register**.
-  - Auto-login session caching: once registered, users are never shown the registration screen on relaunch.
-  - 1-Tap Google Sign-In and Instant Demo Bypass for rapid testing and demonstrations.
-- **Trip Security Handshake:**
-  - Cryptographic 4-digit PIN verification before trip start to ensure correct passenger-driver matching.
-- **Emergency Safety Shield (SOS):**
-  - Instant 1-tap distress trigger linking directly to Egyptian Emergency Police (122) and streaming real-time GPS telemetry to the Operations Command Center.
+Rafik operates with **zero intermediate application servers**. All business logic, authorization, spatial queries, and safety handshakes are enforced directly inside the database engine.
 
-### 🖥️ 2. Admin Operations & Safety Command Center
-- **Interactive Cairo Fleet Radar:**
-  - Leaflet & OpenStreetMap real-time driver locations, heading, and live ride routes across Greater Cairo.
-- **Live KYC & Driver Intake Vault:**
-  - 6-Sided document inspection: National ID (front & back), Driving License (front & back), and Vehicle Mulkiya (front & back).
-  - One-click **Approve Captain** and **Reject Application** actions.
-- **Empty-by-Default Production Database:**
-  - Zero dummy data: new registrations stream directly into the **Pending** queue in real time.
-- **Emergency Telemetry Log:**
-  - Real-time audit logs for dispatch events, GPS updates, and SOS distress events.
+```
+┌─────────────────────────────────┐       ┌─────────────────────────────────┐
+│     Rafik Rider App (Flutter)   │       │    Rafik Driver App (Flutter)   │
+│   (Flavored: com.rafik.rider)   │       │   (Flavored: com.rafik.driver)  │
+└────────────────┬────────────────┘       └────────────────┬────────────────┘
+                 │                                         │
+                 │         HTTPS / WSS (Supabase SDK)     │
+                 └───────────────────┬─────────────────────┘
+                                     │
+                   ┌─────────────────┴─────────────────┐
+                   │       Supabase Cloud Engine       │
+                   ├───────────────────────────────────┤
+                   │  • Supabase Auth (OTP / OAuth)    │
+                   │  • PostgreSQL 15 + PostGIS Spatial│
+                   │  • Strict Row Level Security (RLS)│
+                   │  • 16 SECURITY DEFINER RPCs       │
+                   │  • Realtime (postgres_changes)    │
+                   │  • Private Storage (Signed URLs)  │
+                   └─────────────────┬─────────────────┘
+                                     │
+                   ┌─────────────────┴─────────────────┐
+                   │    Admin Operations Portal        │
+                   │  Static Web App (Vercel/Netlify)  │
+                   │  Leaflet / OSM • KYC Document Q   │
+                   └───────────────────────────────────┘
+```
 
-### ⚡ 3. Backend & Realtime Architecture (Node.js & TypeScript)
-- **High-Performance REST & WebSocket Server:**
-  - Persistent disk database (`backend/data/database.json`) ensures no data loss across server restarts.
-  - REST endpoints:
-    - `POST /api/register` — Universal user and captain registration.
-    - `POST /api/login` — Phone-based authentication.
-    - `GET /api/database/records` — Full database inspection endpoint.
-    - `GET /api/drivers` & `GET /api/drivers/:id` — Driver fleet querying.
-    - `PUT /api/drivers/:id/status` — Admin status updates (`approved`, `rejected`, `online`, `offline`).
-    - `POST /api/rides/request` & `POST /api/rides/:id/accept` — Real-time dispatch lifecycle.
-    - `POST /api/sos` — Emergency alert ingestion.
-- **Cloud Database Support:**
-  - Fully wired for **Supabase Cloud** (PostgreSQL + PostGIS + Supabase Realtime).
-  - Automatic fallback to local persistence so apps remain 100% responsive and crash-free even during cloud DNS outages.
+- **Authentication:** Supabase Auth with Phone OTP, Email/Password, and Google Sign-In. Direct phone verification with automatic `profiles` row generation via database trigger.
+- **Row Level Security (RLS):** Enabled on 100% of tables. Direct `INSERT`, `UPDATE`, and `DELETE` on operational tables (`rides`, `ride_pins`, `ride_offers`, `drivers`, `driver_locations`, `wallet_transactions`) are strictly revoked from `anon` and `authenticated` roles.
+- **SECURITY DEFINER RPCs:** All operational transitions are executed via parameterized, audit-safe stored procedures with strict parameter validation and atomic state management:
+  - `compute_fare(km)`
+  - `request_ride(tier, pickup_address, pickup_lat, pickup_lng, dropoff_address, dropoff_lat, dropoff_lng, payment)`
+  - `accept_ride(ride_id)` — Atomic check preventing race conditions between concurrent captains.
+  - `decline_offer(ride_id)`
+  - `mark_arrived(ride_id)`
+  - `start_ride(ride_id, pin)` — Enforces 3-attempt lockout without rolling back failure counters; zero master PIN bypass.
+  - `complete_ride(ride_id)` — Credits captain wallet with 100% fare (0% commission).
+  - `cancel_ride(ride_id, reason)`
+  - `rate_ride(ride_id, stars, review)`
+  - `submit_driver_application(national_id, license_number, make, model, year, plate, color)`
+  - `set_driver_online(online)`
+  - `update_driver_location(lat, lng, heading)`
+  - `trigger_sos(ride_id, lat, lng)`
+  - `admin_review_driver(driver_id, approve, reason, confirm_female)`
+  - `admin_review_identity(user_id, approve, reason)`
+  - `expire_stale_rides()`
+- **Realtime Dispatch:** Broadcasts and driver updates use Supabase Realtime `postgres_changes` respecting database RLS.
+- **Document Vault:** Captain KYC documents (6 photos) and rider identity proofs are stored in private Supabase Storage buckets (`driver-documents` and `identity-documents`). Document inspection in the Admin Portal uses short-lived signed URLs (60-second expiration).
+- **Map & Routing:** OpenStreetMap raster tiles with proper attribution and Open Source routing distance formula (`Haversine * 1.25` Cairo traffic factor).
 
 ---
 
@@ -77,106 +86,150 @@ Rafik is designed specifically for Greater Cairo’s transit dynamics, addressin
 
 $$\text{Fare (EGP)} = \max\Big(25.00,\, 15.00 + (\text{Distance in km} \times 10.00)\Big)$$
 
-- **Base Pickup Fare:** 15.00 LE
-- **Per Kilometer Rate:** 10.00 LE
-- **Minimum Trip Fare:** 25.00 LE
-- **Platform Commission:** 0.00 LE (100% earnings to captains)
+- **Base Pickup Fare:** 15.00 EGP
+- **Per Kilometer Rate:** 10.00 EGP
+- **Minimum Trip Fare:** 25.00 EGP
+- **Platform Commission:** 0.00 EGP (100% earnings to captains)
 
 ---
 
 ## 🛠️ Getting Started
 
 ### Prerequisites
-- [Node.js](https://nodejs.org/) (v18+)
 - [Flutter SDK](https://flutter.dev/) (v3.24+)
+- [Supabase CLI](https://supabase.com/docs/guides/cli) (v1.140+)
 - Android Studio / Android SDK (API 34+)
 
-### 1. Start Backend & Admin Portal
-```bash
-# Navigate to backend directory
-cd backend
+---
 
-# Install dependencies
-npm install
+### 1. Database Setup (Supabase Cloud)
 
-# Compile TypeScript
-npm run build
+1. **Link your Supabase Project:**
+   ```bash
+   supabase login
+   supabase link --project-ref <your-supabase-project-id>
+   ```
 
-# Start the server (Port 5000)
-npm start
-```
-- **Admin Dashboard:** Open [http://localhost:5000/admin](http://localhost:5000/admin) in your browser.
-- **Database Inspection:** [http://localhost:5000/api/database/records](http://localhost:5000/api/database/records).
+2. **Push Migrations:**
+   ```bash
+   # Applies 0001_core.sql and 0002_rpcs.sql
+   supabase db push
+   ```
 
-### 2. Run Mobile Applications
-```bash
-# Navigate to mobile app directory
-cd mobile_app
+3. **Verify Security Tests:**
+   Execute the pgTAP / SQL security test suite to verify RLS lockdown, RPC constraints, and lockout mechanisms:
+   ```bash
+   supabase test db
+   # Or run supabase/tests/01_security_and_rpc_test.sql in the SQL Editor
+   ```
 
-# Fetch dependencies
-flutter pub get
-
-# Run Rider App
-flutter run --flavor rider -t lib/main_rider.dart
-
-# Run Driver App
-flutter run --flavor driver -t lib/main_driver.dart
-```
-
-### 3. Build Release APKs
-```bash
-# Build Rider Release APK
-flutter build apk --flavor rider -t lib/main_rider.dart --release --no-tree-shake-icons
-
-# Build Driver Release APK
-flutter build apk --flavor driver -t lib/main_driver.dart --release --no-tree-shake-icons
-```
-Output binaries:
-- `build/app/outputs/flutter-apk/app-rider-release.apk`
-- `build/app/outputs/flutter-apk/app-driver-release.apk`
+4. **Bootstrap Initial Administrator:**
+   Create an admin account via Supabase Auth (or the Admin Portal login screen), then promote it in the Supabase SQL Editor:
+   ```sql
+   UPDATE public.profiles
+   SET role = 'admin'
+   WHERE email = 'admin@rafik.com'; -- Or your admin user ID
+   ```
 
 ---
 
-## 📂 Project Structure
+### 2. Mobile App Setup (`mobile_app/`)
 
-```
-Rafik/
-├── admin_portal/                  # Operations Command Center (HTML5, Tailwind, Leaflet, Supabase)
-│   └── index.html                 # Fleet radar, live KYC vault, SOS dispatch center
-├── backend/                       # Node.js + TypeScript REST & WebSocket Server
-│   ├── data/
-│   │   └── database.json          # Persistent disk database storage
-│   ├── src/
-│   │   ├── index.ts               # Core server and API endpoints
-│   │   └── config/supabase.ts     # Supabase client configuration
-│   └── package.json
-├── mobile_app/                    # Flutter Multi-Platform App (Rider & Driver)
-│   ├── lib/
-│   │   ├── main_rider.dart        # Entrypoint for Rafik Rider
-│   │   ├── main_driver.dart       # Entrypoint for Rafik Driver
-│   │   ├── core/                  # Theme, persistent storage, location & Supabase services
-│   │   └── features/
-│   │       ├── auth/              # Dual-tier responsive Auth & Intake Screen
-│   │       ├── rider/             # Rider map, booking sheet, safety shield, ratings
-│   │       ├── driver/            # Driver radar, 1-tap online, wallet, KYC onboarding
-│   │       ├── chat/              # In-ride passenger-driver messaging
-│   │       └── biometrics/        # ID OCR & verification
-│   └── pubspec.yaml
-├── design/                        # Brand identity, icons, and SVG assets
-├── supabase_schema.sql            # PostgreSQL + PostGIS database schema
-├── .env.example                   # Environment configuration template
-├── .gitignore                     # Git exclusion rules
-└── README.md                      # Platform documentation
-```
+1. **Configure Environment:**
+   Copy the example environment configuration:
+   ```bash
+   cd mobile_app
+   cp env/example.json env/dev.json
+   ```
+   Edit `env/dev.json` with your Supabase URL and Publishable Anon Key:
+   ```json
+   {
+     "SUPABASE_URL": "https://your-project-id.supabase.co",
+     "SUPABASE_PUBLISHABLE_KEY": "your-publishable-anon-key"
+   }
+   ```
+   *(Note: `env/*.json` is gitignored to protect client configs).*
+
+2. **Install Flutter Dependencies:**
+   ```bash
+   flutter pub get
+   ```
+
+3. **Run Rider App:**
+   ```bash
+   flutter run --flavor rider -t lib/main_rider.dart --dart-define-from-file=env/dev.json
+   ```
+
+4. **Run Driver App:**
+   ```bash
+   flutter run --flavor driver -t lib/main_driver.dart --dart-define-from-file=env/dev.json
+   ```
+
+5. **Build Hardened Release APKs:**
+   ```bash
+   # Rider Release APK
+   flutter build apk --release --flavor rider -t lib/main_rider.dart --dart-define-from-file=env/prod.json
+
+   # Driver Release APK
+   flutter build apk --release --flavor driver -t lib/main_driver.dart --dart-define-from-file=env/prod.json
+   ```
 
 ---
 
-## 🔒 Security & Privacy
-- **Zero Secrets in Repository:** Real API keys and credentials are kept out of version control via `.gitignore`.
-- **Driver Verification:** Rigorous verification including Egyptian National ID, driving license, and vehicle registration mulkiya.
-- **Privacy by Design:** Phone numbers are masked in transit communications.
+### 3. Admin Operations Portal (`admin_portal/`)
+
+The Admin Operations Portal is a 100% static web application that requires zero backend servers.
+
+1. **Configure Environment:**
+   Copy the example configuration:
+   ```bash
+   cd admin_portal
+   cp config.example.js config.js
+   ```
+   Edit `config.js`:
+   ```javascript
+   window.RAFIK_CONFIG = {
+     SUPABASE_URL: "https://your-project-id.supabase.co",
+     SUPABASE_PUBLISHABLE_KEY: "your-publishable-anon-key"
+   };
+   ```
+
+2. **Run Locally:**
+   Open `index.html` using any local static web server:
+   ```bash
+   # Using Python 3:
+   python -m http.server 8080
+   # Using npx serve:
+   npx serve .
+   ```
+   Open the hosted local address (e.g. port 8080) in your browser.
+
+3. **Deploy to Production:**
+   Deploy the `admin_portal/` folder directly to **Cloudflare Pages**, **Vercel**, or **Netlify**:
+   - Build Command: *(None)*
+   - Output Directory: `.`
+   - Ensure `config.js` is generated from your platform's environment variables during deployment or configured in CI/CD.
 
 ---
 
-## ⚖️ License
-All rights reserved to **Rafik 2026**. Unauthorized distribution, modification, or commercial reproduction is strictly prohibited.
+## 🗺️ Map Tile Attribution Notice
+
+Rafik utilizes OpenStreetMap raster tile layers with Leaflet and Flutter Map.
+- **Attribution:** `© OpenStreetMap contributors`
+- **Production Note:** The default tile server `tile.openstreetmap.org` is intended for development and evaluation under the OSM Tile Usage Policy. Before scaling to commercial production, configure a hosted tile endpoint (such as [MapTiler](https://www.maptiler.com/), [Stadia Maps](https://stadiamaps.com/), or an in-house tile cache).
+
+---
+
+## 🔒 Security Best Practices
+
+1. **No Service Role Keys in Clients:** Neither the Flutter mobile applications nor the static Admin Portal require or accept the Supabase `service_role` secret key. All operations execute strictly via user-authenticated contexts or `SECURITY DEFINER` RPCs.
+2. **National ID Algorithm:** The 13th digit of Egyptian National IDs is validated cryptographically (`odd = male`, `even = female`) to prevent gender spoofing on the Rafik Girl tier.
+3. **Trip PIN Handshake:** PINs are stored in a dedicated `ride_pins` table inaccessible to drivers via SELECT policies. Drivers can only submit a candidate PIN via the `start_ride` RPC. After 3 incorrect attempts, the ride is locked against brute force.
+4. **Distress Protocol (SOS):** Initiating an emergency triggers the `trigger_sos` RPC, broadcasting real-time coordinates to the Admin Command Center while immediately launching a phone call to Egyptian Police (`122`).
+
+---
+
+## 📄 License & Copyright
+
+All rights reserved © 2026 **Rafik (رَفِيق)**.  
+Unauthorized copying, reverse engineering, or redistribution of this software is strictly prohibited.
