@@ -24,20 +24,6 @@ android {
         manifestPlaceholders["appName"] = "Rafik"
     }
 
-    flavorDimensions += listOf("app")
-    productFlavors {
-        create("rider") {
-            dimension = "app"
-            applicationId = "com.rafik.rider"
-            manifestPlaceholders["appName"] = "Rafik Rider"
-        }
-        create("driver") {
-            dimension = "app"
-            applicationId = "com.rafik.driver"
-            manifestPlaceholders["appName"] = "Rafik Driver"
-        }
-    }
-
     buildTypes {
         release {
             signingConfig = signingConfigs.getByName("debug")
