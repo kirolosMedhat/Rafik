@@ -1,10 +1,18 @@
 import 'dart:async';
-import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 
+/// Detailed location permission status
+enum DetailedLocationStatus {
+  granted,
+  serviceDisabled,
+  denied,
+  deniedForever,
+}
+
 /// Rafik Location & GPS Tracking Service
-/// Handles real device GPS, permission requests, and route interpolation.
+/// Handles real device GPS, permission requests, and localized guidance.
 class LocationService {
   static final LocationService _instance = LocationService._internal();
   factory LocationService() => _instance;
@@ -15,26 +23,113 @@ class LocationService {
   /// Default Cairo Center Location (Tahrir / Downtown)
   static const LatLng defaultCairoCenter = LatLng(30.0444, 31.2357);
 
-  /// Requests location permissions from the user
-  Future<bool> checkAndRequestPermission() async {
-    bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+  /// Checks detailed location status with granular failure classification
+  Future<DetailedLocationStatus> checkDetailedStatus() async {
+    final bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) {
-      return false;
+      return DetailedLocationStatus.serviceDisabled;
     }
 
     LocationPermission permission = await Geolocator.checkPermission();
     if (permission == LocationPermission.denied) {
       permission = await Geolocator.requestPermission();
       if (permission == LocationPermission.denied) {
-        return false;
+        return DetailedLocationStatus.denied;
       }
     }
 
     if (permission == LocationPermission.deniedForever) {
-      return false;
+      return DetailedLocationStatus.deniedForever;
     }
 
-    return true;
+    return DetailedLocationStatus.granted;
+  }
+
+  /// Requests location permissions from the user
+  Future<bool> checkAndRequestPermission() async {
+    final status = await checkDetailedStatus();
+    return status == DetailedLocationStatus.granted;
+  }
+
+  /// Displays localized permission guidance dialog
+  Future<void> showPermissionDialog({
+    required BuildContext context,
+    required DetailedLocationStatus status,
+    bool isArabic = false,
+  }) async {
+    String title;
+    String message;
+    String buttonText;
+    VoidCallback? onAction;
+
+    switch (status) {
+      case DetailedLocationStatus.serviceDisabled:
+        title = isArabic ? 'خدمة الموقع معطلة' : 'Location Service Disabled';
+        message = isArabic
+            ? 'يرجى تفعيل نظام تحديد المواقع (GPS) على هاتفك للمتابعة مع رفيق.'
+            : 'Please enable GPS location services on your device to continue using Rafik.';
+        buttonText = isArabic ? 'تفعيل الموقع' : 'Open Location Settings';
+        onAction = () => Geolocator.openLocationSettings();
+        break;
+      case DetailedLocationStatus.deniedForever:
+        title = isArabic ? 'إذن الموقع مرفوض دائماً' : 'Location Permission Required';
+        message = isArabic
+            ? 'تم رفض إذن الموقع بشكل دائم. يرجى فتح إعدادات التطبيق وتفعيل إذن الموقع للمتابعة.'
+            : 'Location permission is permanently denied. Please grant permission in application settings to proceed.';
+        buttonText = isArabic ? 'فتح الإعدادات' : 'Open Settings';
+        onAction = () => Geolocator.openAppSettings();
+        break;
+      case DetailedLocationStatus.denied:
+        title = isArabic ? 'مطلوب إذن الموقع' : 'Location Permission Required';
+        message = isArabic
+            ? 'يحتاج رفيق إلى إذن الموقع لتحديد نقطة الركوب والوجهة وتتبع الرحلة.'
+            : 'Rafik requires location permissions to pinpoint pickup, destination, and live tracking.';
+        buttonText = isArabic ? 'حسناً' : 'Got it';
+        onAction = null;
+        break;
+      case DetailedLocationStatus.granted:
+        return;
+    }
+
+    await showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1E293B),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text(
+          title,
+          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+          textDirection: isArabic ? TextDirection.rtl : TextDirection.ltr,
+        ),
+        content: Text(
+          message,
+          style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 14),
+          textDirection: isArabic ? TextDirection.rtl : TextDirection.ltr,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: Text(
+              isArabic ? 'إلغاء' : 'Cancel',
+              style: const TextStyle(color: Color(0xFF64748B)),
+            ),
+          ),
+          if (onAction != null)
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF3B82F6),
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              ),
+              onPressed: () {
+                Navigator.pop(ctx);
+                onAction?.call();
+              },
+              child: Text(buttonText),
+            ),
+        ],
+      ),
+    );
   }
 
   /// Gets the current location or falls back to Zamalek / Downtown Cairo
