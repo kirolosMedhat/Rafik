@@ -439,9 +439,9 @@
         <td>Obsidian Berry (<code>#12080C</code>) & Egyptian Rose Gold (<code>#B76E79</code>)</td>
       </tr>
       <tr>
-        <td><strong>Identity Protocol</strong></td>
+        <td><strong>Identity & Vetting Protocol</strong></td>
         <td>Egyptian National ID + 4-Digit Handshake PIN</td>
-        <td>6-Sided Document Vault + National ID 13th Digit Gender Check</td>
+        <td>6-Sided KYC Document Vault (ID, License, Mulkiya) + Admin Verification</td>
       </tr>
       <tr>
         <td><strong>Platform Commission</strong></td>
@@ -843,7 +843,7 @@ erDiagram
 
   <h2 id="ch5-1">5.1 6-Sided KYC Document Vault & National ID Decoupler</h2>
   <p>
-    Unlike conventional single-license upload procedures, Rafik enforces an uncompromised <strong>6-Sided KYC Verification Pipeline</strong>:
+    Unlike conventional single-license upload procedures, Rafik enforces a thorough <strong>6-Sided KYC Document Verification Pipeline</strong> without requiring intrusive or error-prone biometric face scanning:
   </p>
   <ul>
     <li><strong>Document 1 & 2:</strong> Egyptian National ID (Front & Back).</li>
@@ -851,11 +851,7 @@ erDiagram
     <li><strong>Document 5 & 6:</strong> Vehicle Registration Mulkiya (Front & Back).</li>
   </ul>
   <p>
-    <strong>Gender Verification Algorithm:</strong> Egyptian National IDs encode biological gender in the 13th digit. The Rafik intake service performs a modulo operation:
-  </p>
-  <pre>Is_Female = (Digit_13 % 2 === 0)</pre>
-  <p>
-    Only candidates where <code>Is_Female == true</code> can be promoted to the <strong>Rafik Girl Fleet</strong>, preventing identity spoofing.
+    <strong>Account Preference & Admin Verification:</strong> Users and captains select their profile gender and tier preference during account registration. For captain authorization, the Operations Admin manually inspects all 6 submitted document sides in the Admin Portal KYC Vault, verifying vehicle ownership and licensing authenticity before granting approval for live Cairo dispatch.
   </p>
 
   <h2 id="ch5-2">5.2 Cryptographic 4-Digit Handshake PIN Protocol</h2>
@@ -915,8 +911,8 @@ erDiagram
   </div>
 
   <div class="figure-container">
-    <img src="design/female_verification_ui_1789555226523.jpg" alt="Female Verification UI">
-    <div class="figure-caption">Figure 6.3: Rafik Girl Security Onboarding and Egyptian National ID verification.</div>
+    <img src="design/screenshots/rafik_dispatch_radar_live.png" alt="Live Dispatch Radar">
+    <div class="figure-caption">Figure 6.3: Rafik Real-Time Dispatch Radar with instant ride broadcasting and 4-digit PIN verification.</div>
   </div>
 
   <div class="page-break"></div>
