@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+  <!-- Flat Solid Obsidian Squircle Background -->
+  <rect width="512" height="512" rx="120" fill="#12080C" />
+
+  <!-- The Flat Mono 'R' with Location Pin Gap -->
+  <g transform="translate(14, 0)">
+    <!-- Main Outer Solid Letter R Body in Flat Rose Gold -->
+    <path d="M 130 110 
+             L 280 110 
+             C 360 110, 410 155, 410 230 
+             C 410 290, 368 332, 310 342 
+             L 410 430 
+             L 340 430 
+             L 248 344 
+             L 196 344 
+             L 196 430 
+             L 130 430 
+             Z" 
+          fill="#B76E79" />
+
+    <!-- Negative Space Gap inside R shaped as Location Pin Marker -->
+    <path d="M 270 170 
+             C 242 170, 220 192, 220 220 
+             C 220 248, 270 296, 270 296 
+             C 270 296, 320 248, 320 220 
+             C 320 192, 298 170, 270 170 Z" 
+          fill="#12080C" />
+
+    <!-- Inner Pin Drop / Dot -->
+    <circle cx="270" cy="216" r="16" fill="#FFFFFF" />
+  </g>
+</svg>

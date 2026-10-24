@@ -1,0 +1,78 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+  <defs>
+    <!-- Rose Gold Metallic Gradient -->
+    <linearGradient id="routeRoseGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FCE4E6" />
+      <stop offset="30%" stop-color="#E8B4B8" />
+      <stop offset="70%" stop-color="#B76E79" />
+      <stop offset="100%" stop-color="#7A1F3D" />
+    </linearGradient>
+
+    <!-- Background Obsidian Gradient -->
+    <linearGradient id="bgDarkGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#14090D" />
+      <stop offset="50%" stop-color="#0E0508" />
+      <stop offset="100%" stop-color="#070204" />
+    </linearGradient>
+
+    <!-- Soft Glow Filter for Route Neon Effect -->
+    <filter id="routeGlow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="6" result="blur" />
+      <feMerge>
+        <feMergeNode in="blur" />
+        <feMergeNode in="SourceGraphic" />
+      </feMerge>
+    </filter>
+
+    <filter id="softShadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="12" stdDeviation="16" flood-color="#000000" flood-opacity="0.8" />
+    </filter>
+  </defs>
+
+  <!-- Squircle App Chassis -->
+  <rect x="24" y="24" width="464" height="464" rx="112" fill="url(#bgDarkGrad)" stroke="#B76E79" stroke-width="2" stroke-opacity="0.3" filter="url(#softShadow)" />
+
+  <!-- Subtle Navigation Grid Coordinate Lines (Low Opacity) -->
+  <path d="M 64 256 L 448 256 M 256 64 L 256 448" stroke="#B76E79" stroke-width="1" stroke-opacity="0.08" stroke-dasharray="6 6" />
+  <circle cx="256" cy="256" r="160" fill="none" stroke="#B76E79" stroke-width="1" stroke-opacity="0.06" stroke-dasharray="8 8" />
+
+  <!-- THE ROUTE 'R' (Start Pin ➔ Upward Journey ➔ Curve Loop ➔ Diagonal Leg ➔ Destination Pin) -->
+  <g filter="url(#routeGlow)">
+    <!-- Main Continuous Navigation Route Polyline -->
+    <path d="M 140 370 
+             L 140 160 
+             C 140 90, 210 75, 290 75 
+             C 365 75, 395 125, 395 195 
+             C 395 265, 340 305, 260 305 
+             L 205 305
+             M 255 300
+             C 290 300, 325 340, 370 380
+             L 395 380" 
+          fill="none" 
+          stroke="url(#routeRoseGrad)" 
+          stroke-width="24" 
+          stroke-linecap="round" 
+          stroke-linejoin="round" />
+
+    <!-- START WAYPOINT (Pickup Node - Bottom Left) -->
+    <circle cx="140" cy="370" r="28" fill="#14090D" stroke="url(#routeRoseGrad)" stroke-width="12" />
+    <circle cx="140" cy="370" r="10" fill="#FCE4E6" />
+
+    <!-- DESTINATION MAP PIN (Dropoff Node - Bottom Right) -->
+    <g transform="translate(395, 340) scale(0.95)">
+      <!-- Map Pin Shape -->
+      <path d="M 0 -38 
+               C -18 -38, -32 -24, -32 -6 
+               C -32 16, 0 42, 0 42 
+               C 0 42, 32 16, 32 -6 
+               C 32 -24, 18 -38, 0 -38 Z" 
+            fill="url(#routeRoseGrad)" stroke="#14090D" stroke-width="3" />
+      <!-- Inner Pin Dot -->
+      <circle cx="0" cy="-8" r="9" fill="#14090D" />
+    </g>
+
+    <!-- Live Car Waypoint Pulsing on Route Loop -->
+    <circle cx="395" cy="195" r="7" fill="#FFFFFF" />
+    <circle cx="395" cy="195" r="13" fill="none" stroke="#FFFFFF" stroke-width="2" stroke-opacity="0.6" />
+  </g>
+</svg>

@@ -1,0 +1,78 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+  <defs>
+    <!-- Brushed Rose Gold Metallic Gradients -->
+    <linearGradient id="roseGoldBody" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FCE4E6" />
+      <stop offset="25%" stop-color="#E8B4B8" />
+      <stop offset="60%" stop-color="#C77D87" />
+      <stop offset="85%" stop-color="#A65866" />
+      <stop offset="100%" stop-color="#7A1F3D" />
+    </linearGradient>
+
+    <linearGradient id="pinGoldGrad" x1="20%" y1="0%" x2="80%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF" />
+      <stop offset="30%" stop-color="#F2D0D3" />
+      <stop offset="70%" stop-color="#C77D87" />
+      <stop offset="100%" stop-color="#8E4653" />
+    </linearGradient>
+
+    <linearGradient id="bgDarkGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#14090D" />
+      <stop offset="50%" stop-color="#0E0508" />
+      <stop offset="100%" stop-color="#070204" />
+    </linearGradient>
+
+    <filter id="chassisShadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="16" stdDeviation="20" flood-color="#000000" flood-opacity="0.85" />
+    </filter>
+
+    <filter id="letterBevel" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="6" stdDeviation="8" flood-color="#000000" flood-opacity="0.5" />
+    </filter>
+  </defs>
+
+  <!-- Squircle App Icon Chassis -->
+  <rect x="24" y="24" width="464" height="464" rx="116" fill="url(#bgDarkGrad)" stroke="#B76E79" stroke-width="2" stroke-opacity="0.3" filter="url(#chassisShadow)" />
+
+  <!-- THE PIN-IN-R MONOGRAM -->
+  <g filter="url(#letterBevel)" transform="translate(18, 0)">
+    <!-- Letter R Outer Solid Geometry -->
+    <path d="M 132 108 
+             L 280 108 
+             C 356 108, 404 152, 404 228 
+             C 404 286, 362 328, 304 340 
+             C 334 358, 370 398, 412 432 
+             L 348 432 
+             C 292 388, 260 348, 228 348 
+             L 196 348 
+             L 196 432 
+             L 132 432 
+             Z" 
+          fill="url(#roseGoldBody)" />
+
+    <!-- The Gap in the R (Negative Space Cutout) -->
+    <path d="M 196 172 
+             L 272 172 
+             C 314 172, 342 196, 342 232 
+             C 342 268, 314 290, 272 290 
+             L 196 290 
+             Z" 
+          fill="url(#bgDarkGrad)" />
+
+    <!-- THE LOCATION PIN SYMBOL (Centrally Nested Inside the Gap) -->
+    <g transform="translate(268, 234) scale(1.15)">
+      <!-- Outer Location Pin Teardrop Shape -->
+      <path d="M 0 -38 
+               C -22 -38, -38 -22, -38 0 
+               C -38 20, 0 46, 0 46 
+               C 0 46, 38 20, 38 0 
+               C 38 -22, 22 -38, 0 -38 Z" 
+            fill="url(#pinGoldGrad)" stroke="#14090D" stroke-width="3.5" />
+      
+      <!-- Inner Location Pin Hollow Eye -->
+      <circle cx="0" cy="-2" r="14" fill="url(#bgDarkGrad)" />
+      <!-- Subtle Center Pin Sparkle -->
+      <circle cx="0" cy="-2" r="6" fill="#FCE4E6" fill-opacity="0.8" />
+    </g>
+  </g>
+</svg>

@@ -1,0 +1,85 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 280" width="100%" height="100%">
+  <defs>
+    <linearGradient id="roseGoldText" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#F2D0D3" />
+      <stop offset="40%" stop-color="#B76E79" />
+      <stop offset="80%" stop-color="#E8B4B8" />
+      <stop offset="100%" stop-color="#7A1F3D" />
+    </linearGradient>
+
+    <linearGradient id="bannerBg" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#140A0E" />
+      <stop offset="50%" stop-color="#1E0E15" />
+      <stop offset="100%" stop-color="#140A0E" />
+    </linearGradient>
+
+    <linearGradient id="borderGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#7A1F3D" stop-opacity="0.2" />
+      <stop offset="50%" stop-color="#B76E79" stop-opacity="0.8" />
+      <stop offset="100%" stop-color="#7A1F3D" stop-opacity="0.2" />
+    </linearGradient>
+  </defs>
+
+  <!-- Background Card -->
+  <rect x="10" y="10" width="940" height="260" rx="32" fill="url(#bannerBg)" stroke="url(#borderGrad)" stroke-width="1.5" />
+
+  <!-- Embedded Logo Mark on Left -->
+  <g transform="translate(48, 30) scale(0.43)">
+    <!-- Squircle -->
+    <rect width="464" height="464" rx="112" fill="#1A0D12" stroke="#B76E79" stroke-width="3" />
+    <!-- Letter R & Ribbon Loop -->
+    <path d="M 120 70 L 120 390" stroke="url(#roseGoldText)" stroke-width="34" stroke-linecap="round" />
+    <path d="M 120 80 C 230 80, 310 100, 310 200 C 310 300, 220 310, 120 310" fill="none" stroke="url(#roseGoldText)" stroke-width="34" stroke-linecap="round" />
+    <path d="M 130 290 C 220 290, 270 340, 340 400" fill="none" stroke="url(#roseGoldText)" stroke-width="34" stroke-linecap="round" />
+    <!-- Protective Loop -->
+    <path d="M 230 70 C 360 80, 410 180, 390 280 C 370 360, 280 400, 180 400" fill="none" stroke="#B76E79" stroke-width="18" stroke-dasharray="14 10" />
+    <circle cx="330" cy="120" r="10" fill="#FFFFFF" />
+  </g>
+
+  <!-- Typography Block -->
+  <g transform="translate(300, 75)">
+    <!-- English Wordmark -->
+    <text x="0" y="55" font-family="'Cinzel', 'Playfair Display', 'Times New Roman', serif" font-size="64" font-weight="900" letter-spacing="12" fill="url(#roseGoldText)">
+      REFQA
+    </text>
+
+    <!-- Arabic Calligraphy Typographic Name -->
+    <text x="440" y="52" font-family="'Noto Kufi Arabic', 'Amiri', 'Segoe UI', serif" font-size="52" font-weight="bold" fill="#E8B4B8" text-anchor="start">
+      رِفـــقَــة
+    </text>
+
+    <!-- Tagline & Pill Badges -->
+    <text x="2" y="105" font-family="'Inter', sans-serif" font-size="14" font-weight="600" letter-spacing="3" text-transform="uppercase" fill="#E8B4B8" opacity="0.9">
+      Women-Centric Safe Mobility Platform
+    </text>
+
+    <!-- Arabic Tagline -->
+    <text x="440" y="105" font-family="'Noto Kufi Arabic', 'Segoe UI', sans-serif" font-size="14" font-weight="500" fill="#E8B4B8" opacity="0.75" dir="rtl">
+      تنقّل آمن وموثوق للمرأة
+    </text>
+
+    <!-- Divider Line -->
+    <line x1="0" y1="125" x2="600" y2="125" stroke="url(#borderGrad)" stroke-width="1" />
+
+    <!-- Badges Row -->
+    <g transform="translate(0, 140)">
+      <!-- Pill Badge 1: 100% Verified -->
+      <rect x="0" y="0" width="175" height="26" rx="13" fill="rgba(183, 110, 121, 0.12)" stroke="#B76E79" stroke-width="1" />
+      <text x="87" y="17" font-family="'Inter', monospace" font-size="10" font-weight="bold" letter-spacing="1.5" text-anchor="middle" fill="#E8B4B8">
+        ✓ FEMALE ONLY
+      </text>
+
+      <!-- Pill Badge 2: Biometric Gate -->
+      <rect x="185" y="0" width="195" height="26" rx="13" fill="rgba(62, 122, 84, 0.15)" stroke="#3E7A54" stroke-width="1" />
+      <text x="282" y="17" font-family="'Inter', monospace" font-size="10" font-weight="bold" letter-spacing="1.5" text-anchor="middle" fill="#88D4A2">
+        ● ON-DEVICE BIOMETRICS
+      </text>
+
+      <!-- Pill Badge 3: 4-Digit Handshake -->
+      <rect x="390" y="0" width="190" height="26" rx="13" fill="rgba(183, 110, 121, 0.12)" stroke="#B76E79" stroke-width="1" />
+      <text x="485" y="17" font-family="'Inter', monospace" font-size="10" font-weight="bold" letter-spacing="1.5" text-anchor="middle" fill="#E8B4B8">
+        ✦ 4-DIGIT PIN SAFETY
+      </text>
+    </g>
+  </g>
+</svg>
