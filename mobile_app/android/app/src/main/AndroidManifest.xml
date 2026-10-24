@@ -4,6 +4,8 @@
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
 
@@ -11,7 +13,6 @@
         android:label="${appName}"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
-        android:usesCleartextTraffic="true"
         android:hardwareAccelerated="true">
         <activity
             android:name=".MainActivity"

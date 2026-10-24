@@ -136,7 +136,8 @@ class _RiderHomeScreenState extends State<RiderHomeScreen> {
   RideTier _selectedTier = RideTier.rafikStandard;
   String _riderGender = 'female';
   bool _uperGirlEligible = true;
-  final String _securityPin = '7429'; // 4-digit trip handshake PIN
+  String _securityPin = '----'; // Fetched securely from isolated ride_pins table
+  String? _assignedDriverId;
 
   // Payment Method Selection
   PaymentMethodOption _selectedPayment = const PaymentMethodOption(
@@ -194,171 +195,144 @@ class _RiderHomeScreenState extends State<RiderHomeScreen> {
   }
 
   void _initRealtimeChannel() {
-    try {
-      final supabase = Supabase.instance.client;
-      _dispatchChannel = supabase.channel('refqa-dispatch');
+    // Realtime postgres_changes active per ride
+  }
 
-    // 1. Listen for Driver Accepting the Ride in Real-Time
-    _dispatchChannel!.onBroadcast(
-      event: 'ride_accepted',
-      callback: (payload) {
-        final rideId = payload['ride_id']?.toString();
-        if (rideId != null && (rideId == _activeRideId || _rideState == RideState.searching)) {
-          HapticFeedback.heavyImpact();
-          final isGirlCap = payload['tier'] == 'uper_girl';
-          final capTitle = isGirlCap ? 'RAFIK GIRL Captain' : 'Rafik Captain';
-          setState(() {
-            _activeRideId = rideId;
-            _driverName = payload['driver_name']?.toString() ?? 'Rafik Captain';
-            _vehicleInfo = payload['vehicle_info']?.toString() ?? 'Toyota Yaris (س ن ق 1 4 2 9)';
-            _driverRating = (payload['driver_rating'] as num?)?.toDouble() ?? 4.96;
-            _rideState = RideState.driverAssigned;
-            _driverLiveLocation ??= LatLng(_pickupPlace.location.latitude + 0.008, _pickupPlace.location.longitude + 0.006);
-          });
+  void _subscribeToRide(String rideId) {
+    _dispatchChannel?.unsubscribe();
+    final supabase = Supabase.instance.client;
 
-          _startDriverMovementSimulation();
+    _dispatchChannel = supabase.channel('rider-ride-$rideId')
+      ..onPostgresChanges(
+        event: PostgresChangeEvent.all,
+        schema: 'public',
+        table: 'rides',
+        filter: PostgresChangeFilter(
+          type: PostgresChangeFilterType.eq,
+          column: 'id',
+          value: rideId,
+        ),
+        callback: (payload) async {
+          final record = payload.newRecord;
+          final status = record['status']?.toString();
+          if (status == null) return;
 
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text('$capTitle $_driverName accepted your ride!'),
-                backgroundColor: AppTheme.sageSafe,
-                duration: const Duration(seconds: 4),
-              ),
-            );
+          if (status == 'accepted' && _rideState != RideState.driverAssigned && _rideState != RideState.inTrip) {
+            HapticFeedback.heavyImpact();
+            final driverId = record['driver_id']?.toString();
+            _assignedDriverId = driverId;
+
+            if (driverId != null) {
+              try {
+                final driverData = await supabase
+                    .from('drivers')
+                    .select('vehicle_make, vehicle_model, vehicle_plate, vehicle_color, profiles:user_id(full_name, rating_avg)')
+                    .eq('user_id', driverId)
+                    .maybeSingle();
+
+                if (driverData != null && mounted) {
+                  final prof = driverData['profiles'] as Map<String, dynamic>?;
+                  setState(() {
+                    _driverName = prof?['full_name']?.toString() ?? 'Rafik Captain';
+                    _driverRating = (prof?['rating_avg'] as num?)?.toDouble() ?? 5.0;
+                    _vehicleInfo = '${driverData['vehicle_make']} ${driverData['vehicle_model']} (${driverData['vehicle_plate']})';
+                  });
+                }
+              } catch (_) {}
+
+              _subscribeToDriverLocation(driverId);
+            }
+
+            final pin = await SupabaseService().fetchRidePin(rideId);
+            if (pin != null && mounted) {
+              setState(() => _securityPin = pin);
+            }
+
+            if (mounted) {
+              setState(() => _rideState = RideState.driverAssigned);
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('Captain $_driverName accepted your ride!'),
+                  backgroundColor: AppTheme.sageSafe,
+                  duration: const Duration(seconds: 4),
+                ),
+              );
+            }
+          } else if (status == 'arrived' && _rideState == RideState.driverAssigned) {
+            HapticFeedback.mediumImpact();
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Captain has arrived at your pickup location!'),
+                  backgroundColor: AppTheme.sageSafe,
+                ),
+              );
+            }
+          } else if (status == 'in_progress' && _rideState != RideState.inTrip) {
+            HapticFeedback.mediumImpact();
+            if (mounted) {
+              setState(() => _rideState = RideState.inTrip);
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Trip started safely with PIN handshake.'),
+                  backgroundColor: AppTheme.sageSafe,
+                ),
+              );
+            }
+          } else if (status == 'completed') {
+            HapticFeedback.heavyImpact();
+            if (mounted) {
+              _showTripCompletedDialog();
+            }
+          } else if (status == 'expired' || status == 'cancelled') {
+            if (mounted) {
+              setState(() {
+                _rideState = RideState.idle;
+                _activeRideId = '';
+              });
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(status == 'expired'
+                      ? 'No captains nearby at this moment. Please try again.'
+                      : 'The ride was cancelled.'),
+                  backgroundColor: AppTheme.berryCore,
+                ),
+              );
+            }
           }
-        }
-      },
-    );
+        },
+      )
+      ..subscribe();
+  }
 
-    // 2. Listen for PIN Verified / Trip Started in Real-Time
-    _dispatchChannel!.onBroadcast(
-      event: 'trip_started',
-      callback: (payload) {
-        final rideId = payload['ride_id']?.toString();
-        if (rideId != null && (rideId == _activeRideId || _rideState == RideState.driverAssigned)) {
-          HapticFeedback.mediumImpact();
-          setState(() {
-            _rideState = RideState.inTrip;
-          });
-
-          _startTripProgressSimulation();
-
+  void _subscribeToDriverLocation(String driverId) {
+    final supabase = Supabase.instance.client;
+    supabase.channel('rider-driver-loc-$driverId')
+      ..onPostgresChanges(
+        event: PostgresChangeEvent.all,
+        schema: 'public',
+        table: 'driver_locations',
+        filter: PostgresChangeFilter(
+          type: PostgresChangeFilterType.eq,
+          column: 'driver_id',
+          value: driverId,
+        ),
+        callback: (payload) {
+          final rec = payload.newRecord;
+          final heading = (rec['heading'] as num?)?.toDouble() ?? 0.0;
           if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Safety PIN verified! Trip is safely in progress.'),
-                backgroundColor: AppTheme.sageSafe,
-              ),
-            );
+            setState(() {
+              _driverHeading = heading;
+            });
           }
-        }
-      },
-    );
-
-    // 3. Listen for Trip Completed in Real-Time
-    _dispatchChannel!.onBroadcast(
-      event: 'trip_completed',
-      callback: (payload) {
-        final rideId = payload['ride_id']?.toString();
-        if (rideId != null && (rideId == _activeRideId || _rideState == RideState.inTrip)) {
-          HapticFeedback.heavyImpact();
-          _showTripCompletedDialog();
-        }
-      },
-    );
-
-    // 4. Listen for Driver Live GPS Location Broadcasted from Device 2
-    _dispatchChannel!.onBroadcast(
-      event: 'driver_location_update',
-      callback: (payload) {
-        final lat = (payload['lat'] as num?)?.toDouble();
-        final lng = (payload['lng'] as num?)?.toDouble();
-        final heading = (payload['heading'] as num?)?.toDouble() ?? 45.0;
-        final eta = (payload['eta_minutes'] as num?)?.toInt() ?? 3;
-        final dist = (payload['distance_km'] as num?)?.toDouble() ?? 1.2;
-
-        if (lat != null && lng != null && mounted) {
-          setState(() {
-            _driverLiveLocation = LatLng(lat, lng);
-            _driverHeading = heading;
-            _driverEtaMinutes = eta;
-            _driverDistanceRemainingKm = dist;
-          });
-        }
-      },
-    );
-
-    _dispatchChannel!.subscribe();
-    } catch (e) {
-      debugPrint('[Rafik Rider] Realtime dispatch init notice: $e');
-    }
+        },
+      )
+      ..subscribe();
   }
 
-  void _startDriverMovementSimulation() {
-    _driverMovementTimer?.cancel();
-    int step = 0;
-    const totalSteps = 20;
-    final startPoint = LatLng(_pickupPlace.location.latitude + 0.008, _pickupPlace.location.longitude + 0.006);
-    final targetPoint = _pickupPlace.location;
-
-    _driverMovementTimer = Timer.periodic(const Duration(milliseconds: 1500), (timer) {
-      if (!mounted || (_rideState != RideState.driverAssigned && _rideState != RideState.inTrip)) {
-        timer.cancel();
-        return;
-      }
-
-      step++;
-      final t = (step / totalSteps).clamp(0.0, 1.0);
-      final currentLat = startPoint.latitude + (targetPoint.latitude - startPoint.latitude) * t;
-      final currentLng = startPoint.longitude + (targetPoint.longitude - startPoint.longitude) * t;
-
-      setState(() {
-        _driverLiveLocation = LatLng(currentLat, currentLng);
-        _driverDistanceRemainingKm = (1.2 * (1.0 - t)).clamp(0.1, 1.2);
-        _driverEtaMinutes = (_driverDistanceRemainingKm * 2.5).ceil().clamp(1, 4);
-      });
-
-      if (step >= totalSteps) {
-        timer.cancel();
-      }
-    });
-  }
-
-  void _startTripProgressSimulation() {
-    _driverMovementTimer?.cancel();
-    int step = 0;
-    const totalSteps = 30;
-    final startPoint = _pickupPlace.location;
-    final targetPoint = _dropoffPlace.location;
-
-    _driverMovementTimer = Timer.periodic(const Duration(milliseconds: 1500), (timer) {
-      if (!mounted || _rideState != RideState.inTrip) {
-        timer.cancel();
-        return;
-      }
-
-      step++;
-      final t = (step / totalSteps).clamp(0.0, 1.0);
-      final currentLat = startPoint.latitude + (targetPoint.latitude - startPoint.latitude) * t;
-      final currentLng = startPoint.longitude + (targetPoint.longitude - startPoint.longitude) * t;
-
-      setState(() {
-        _driverLiveLocation = LatLng(currentLat, currentLng);
-        _driverDistanceRemainingKm = (_distanceKm * (1.0 - t)).clamp(0.1, _distanceKm);
-        _driverEtaMinutes = (_driverDistanceRemainingKm * 1.5).ceil().clamp(1, 45);
-      });
-
-      if (step >= totalSteps) {
-        timer.cancel();
-      }
-    });
-  }
-
-  /// Calculates real-world road distance and computes fare at 10 LE / km
+  /// Calculates real-world road distance and computes fare preview
   void _recalculateFare() {
     final distanceCalc = const Distance();
-    // Straight-line haversine distance in meters
     final double meters = distanceCalc.as(
       LengthUnit.Meter,
       _pickupPlace.location,
@@ -377,93 +351,62 @@ class _RiderHomeScreenState extends State<RiderHomeScreen> {
   }
 
   Future<void> _requestRide() async {
-    final rideId = 'RIDE-${DateTime.now().millisecondsSinceEpoch}';
     setState(() {
-      _activeRideId = rideId;
       _rideState = RideState.searching;
-      _driverLiveLocation = LatLng(_pickupPlace.location.latitude + 0.008, _pickupPlace.location.longitude + 0.006);
     });
 
     HapticFeedback.mediumImpact();
 
-    // 1. PostgreSQL Database Persistence in Supabase
-    await SupabaseService().createRideRecord(
-      rideId: rideId,
-      pickupAddress: _pickupPlace.name,
-      dropoffAddress: _dropoffPlace.name,
-      pickupLat: _pickupPlace.location.latitude,
-      pickupLng: _pickupPlace.location.longitude,
-      dropoffLat: _dropoffPlace.location.latitude,
-      dropoffLng: _dropoffPlace.location.longitude,
-      fareAmount: _calculatedFare,
-      distanceKm: _distanceKm,
-      handshakePin: _securityPin,
-      paymentMethod: _selectedPayment.title,
-    );
-
-    // 2. Live Realtime Broadcast to Driver Device
     try {
-      await _dispatchChannel?.sendBroadcastMessage(
-        event: 'ride_requested',
-        payload: {
-          'ride_id': rideId,
-          'rider_name': 'Verified Passenger',
-          'tier': _selectedTier == RideTier.rafikGirl ? 'uper_girl' : 'standard',
-          'tier_name': _selectedTier == RideTier.rafikGirl ? 'RAFIK GIRL' : 'RAFIK STANDARD',
-          'rider_gender': _riderGender,
-          'pickup_name': _pickupPlace.name,
-          'pickup_name_ar': _pickupPlace.nameAr,
-          'pickup_lat': _pickupPlace.location.latitude,
-          'pickup_lng': _pickupPlace.location.longitude,
-          'dropoff_name': _dropoffPlace.name,
-          'dropoff_name_ar': _dropoffPlace.nameAr,
-          'dropoff_lat': _dropoffPlace.location.latitude,
-          'dropoff_lng': _dropoffPlace.location.longitude,
-          'distance_km': _distanceKm,
-          'fare_egp': _calculatedFare,
-          'pin_code': _securityPin,
-          'payment_method': _selectedPayment.title,
-        },
+      final rideId = await SupabaseService().requestRide(
+        tier: _selectedTier == RideTier.rafikGirl ? 'rafik_girl' : 'standard',
+        pickupAddress: _pickupPlace.name,
+        pickupLat: _pickupPlace.location.latitude,
+        pickupLng: _pickupPlace.location.longitude,
+        dropoffAddress: _dropoffPlace.name,
+        dropoffLat: _dropoffPlace.location.latitude,
+        dropoffLng: _dropoffPlace.location.longitude,
+        paymentMethod: _selectedPayment.title,
       );
-    } catch (e) {
-      debugPrint('Realtime broadcast error: $e');
-    }
 
-    // 3. Local Fallback (12s) if no second device is active
-    Future.delayed(const Duration(seconds: 12), () {
-      if (mounted && _rideState == RideState.searching && _activeRideId == rideId) {
-        setState(() {
-          _rideState = RideState.driverAssigned;
-        });
-        _startDriverMovementSimulation();
+      if (!mounted) return;
+      setState(() => _activeRideId = rideId);
+      _subscribeToRide(rideId);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _rideState = RideState.idle);
+
+      final err = e.toString();
+      String userMessage = 'Unable to request ride: $e';
+      if (err.contains('rafik_girl_unauthorized')) {
+        userMessage = 'Rafik Girl requires identity verification. Please verify your ID first.';
+      } else if (err.contains('active_ride_exists')) {
+        userMessage = 'You already have an active ride request in progress.';
       }
-    });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(userMessage),
+          backgroundColor: AppTheme.berryCore,
+        ),
+      );
+    }
   }
 
   void _triggerSos() async {
-    // 1. Broadcast Emergency Distress over Supabase Realtime to Admin Command Center
-    try {
-      final supabase = Supabase.instance.client;
-      await supabase.channel('refqa-sos').sendBroadcastMessage(
-        event: 'sos_triggered',
-        payload: {
-          'id': 'SOS-${DateTime.now().millisecondsSinceEpoch}',
-          'timestamp': DateTime.now().toIso8601String().replaceFirst('T', ' ').substring(0, 16),
-          'passengerName': 'Verified Passenger',
-          'passengerPhone': '+20 100 284 7429',
-          'locationName': _pickupPlace.name,
-          'lat': _pickupPlace.location.latitude,
-          'lng': _pickupPlace.location.longitude,
-          'driverAssigned': _driverName.isNotEmpty ? _driverName : 'Captain Yasmine El-Sayed',
-          'status': 'ACTIVE_DISTRESS',
-          'policeAction': 'Notified Egyptian Emergency Police (122) Dispatch',
-        },
-      );
-    } catch (e) {
-      debugPrint('SOS broadcast error: $e');
+    if (_activeRideId.isNotEmpty) {
+      try {
+        await SupabaseService().triggerSos(
+          rideId: _activeRideId,
+          lat: _pickupPlace.location.latitude,
+          lng: _pickupPlace.location.longitude,
+        );
+      } catch (e) {
+        debugPrint('SOS trigger notice: $e');
+      }
     }
 
-    // 2. Launch Egyptian Police 122 Emergency Phone Dialer
+    // Launch Egyptian Police 122 Emergency Phone Dialer
     final uri = Uri.parse('tel:122');
     if (await canLaunchUrl(uri)) {
       await launchUrl(uri);
@@ -768,8 +711,7 @@ class _RiderHomeScreenState extends State<RiderHomeScreen> {
             ),
             children: [
               TileLayer(
-                urlTemplate: 'https://mt{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}',
-                subdomains: const ['0', '1', '2', '3'],
+                urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
                 userAgentPackageName: 'com.rafik.rider',
               ),
 

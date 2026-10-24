@@ -61,19 +61,49 @@ class _DriverRadarScreenState extends State<DriverRadarScreen> {
     _initRealtimeChannel();
   }
 
+  void _openChat() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (_) => InRideChatSheet(
+        rideId: _incomingRideId.isNotEmpty ? _incomingRideId : 'demo-ride',
+        myRole: 'driver',
+        otherPartyName: 'Passenger',
+        otherPartySubtitle: _isUperGirlEnrolled ? 'Rafik Girl Passenger' : 'Rafik Passenger',
+      ),
+    );
+  }
+
+  void _openWallet() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const DriverWalletScreen()),
+    );
+  }
+
+  void _initRealtimeChannel() {
+    // Subscriptions managed via _subscribeToOffers()
+  }
+
   Future<void> _loadDriverSession() async {
-    final session = await PersistentStorage.getUserSession();
-    final isGirl = await PersistentStorage.isUperGirlEnabled();
-    final gender = await PersistentStorage.getUserGender();
-    if (mounted) {
-      setState(() {
-        if (session != null) {
-          _driverName = session['name'] ?? 'Captain';
-          _driverPhone = session['phone'] ?? '+20 100 000 0000';
+    final user = Supabase.instance.client.auth.currentUser;
+    if (user != null) {
+      final prof = await SupabaseService().fetchProfile();
+      final drv = await SupabaseService().fetchDriverStatus();
+      if (mounted) {
+        setState(() {
+          _driverName = prof?['full_name'] ?? 'Captain';
+          _driverPhone = prof?['phone'] ?? '';
+          _driverGender = prof?['gender'] ?? 'female';
+          _isUperGirlEnrolled = prof?['gender_verified'] == true;
+          _isOnline = drv?['is_online'] == true;
+        });
+        if (_isOnline) {
+          _startLocationStreaming();
+          _subscribeToOffers();
         }
-        _driverGender = gender;
-        _isUperGirlEnrolled = (gender == 'female') && isGirl;
-      });
+      }
     }
   }
 
@@ -89,201 +119,96 @@ class _DriverRadarScreenState extends State<DriverRadarScreen> {
 
   void _startLocationStreaming() {
     _locationStreamTimer?.cancel();
-    _locationStreamTimer = Timer.periodic(const Duration(seconds: 4), (timer) async {
-      if (!mounted || !_tripAccepted) {
+    _locationStreamTimer = Timer.periodic(const Duration(seconds: 5), (timer) async {
+      if (!mounted || !_isOnline) {
         timer.cancel();
         return;
       }
       try {
         final loc = await LocationService().getCurrentLocation();
-        final safeId = 'drv-${_driverPhone.replaceAll(RegExp(r'[^0-9]'), '')}';
-        final payload = {
-          'ride_id': _incomingRideId,
-          'driverId': safeId.length > 4 ? safeId : 'drv-captain',
-          'driver_name': _driverName,
-          'tier': _incomingTier,
-          'lat': loc.latitude,
-          'lng': loc.longitude,
-          'heading': 45.0,
-          'speed': 35.0,
-          'eta_minutes': 3,
-          'distance_km': 1.2,
-          'status': 'in_trip',
-        };
-
-        // Broadcast to Rider Dispatch Channel
-        await _dispatchChannel?.sendBroadcastMessage(
-          event: 'driver_location_update',
-          payload: payload,
-        );
-
-        // Broadcast to Admin Telemetry Channel
-        await _telemetryChannel?.sendBroadcastMessage(
-          event: 'driver_location_update',
-          payload: payload,
+        await SupabaseService().updateDriverLocation(
+          lat: loc.latitude,
+          lng: loc.longitude,
+          heading: 45.0,
         );
       } catch (e) {
-        debugPrint('Location streaming error: $e');
+        debugPrint('[Driver Location] Notice: $e');
       }
     });
   }
 
-  void _openChat() {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.transparent,
-      isScrollControlled: true,
-      builder: (_) => InRideChatSheet(
-        rideId: _incomingRideId.isNotEmpty ? _incomingRideId : 'demo-ride',
-        myRole: 'driver',
-        otherPartyName: 'Verified Passenger',
-        otherPartySubtitle: _isUperGirlEnrolled ? 'Rafik Girl Passenger' : 'Rafik Passenger',
-      ),
-    );
-  }
+  void _subscribeToOffers() {
+    final user = Supabase.instance.client.auth.currentUser;
+    if (user == null) return;
 
-  void _openWallet() {
-    Navigator.push(
-      context,
-      MaterialPageRoute(builder: (_) => const DriverWalletScreen()),
-    );
-  }
+    _dispatchChannel?.unsubscribe();
+    _dispatchChannel = Supabase.instance.client.channel('driver-offers-${user.id}')
+      ..onPostgresChanges(
+        event: PostgresChangeEvent.insert,
+        schema: 'public',
+        table: 'ride_offers',
+        filter: PostgresChangeFilter(
+          type: PostgresChangeFilterType.eq,
+          column: 'driver_id',
+          value: user.id,
+        ),
+        callback: (payload) async {
+          final rec = payload.newRecord;
+          final status = rec['status']?.toString();
+          final rideId = rec['ride_id']?.toString();
+          if (status == 'pending' && rideId != null && !_tripAccepted) {
+            // Fetch ride details
+            final rideData = await Supabase.instance.client
+                .from('rides')
+                .select('*')
+                .eq('id', rideId)
+                .maybeSingle();
 
-  void _initRealtimeChannel() {
-    try {
-      final supabase = Supabase.instance.client;
-      _dispatchChannel = supabase.channel('refqa-dispatch');
-      _telemetryChannel = supabase.channel('refqa-telemetry');
-
-    // 1. Listen for Live Ride Requests Broadcasted by Riders
-    _dispatchChannel!.onBroadcast(
-      event: 'ride_requested',
-      callback: (payload) {
-        if (!_isOnline || _tripAccepted) return;
-
-        final requestedTier = payload['tier']?.toString() ?? 'standard';
-        // If passenger requested Uper Girl, only Uper Girl enrolled female captains can receive it!
-        if (requestedTier == 'uper_girl' && !_isUperGirlEnrolled) {
-          return;
-        }
-
-        HapticFeedback.heavyImpact();
-        setState(() {
-          _incomingRideId = payload['ride_id']?.toString() ?? '';
-          _incomingTier = requestedTier;
-          _incomingPickupName = payload['pickup_name']?.toString() ?? 'Zamalek';
-          _incomingDropoffName = payload['dropoff_name']?.toString() ?? 'New Cairo';
-          _incomingDistanceKm = (payload['distance_km'] as num?)?.toDouble() ?? 28.4;
-          _incomingFareEgp = (payload['fare_egp'] as num?)?.toDouble() ?? 299.0;
-          _targetPin = payload['pin_code']?.toString() ?? '7429';
-          _hasIncomingRequest = true;
-          _countdownSeconds = 15;
-        });
-
-        _startCountdownTimer();
-      },
-    );
-
-    // 2. Listen for Rider Cancelling the Request
-    _dispatchChannel!.onBroadcast(
-      event: 'ride_cancelled',
-      callback: (payload) {
-        final rideId = payload['ride_id']?.toString();
-        if (rideId != null && rideId == _incomingRideId && _hasIncomingRequest) {
-          _countdownTimer?.cancel();
-          setState(() => _hasIncomingRequest = false);
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Passenger cancelled request.'),
-                backgroundColor: AppTheme.berryCore,
-              ),
-            );
+            if (rideData != null && mounted) {
+              HapticFeedback.heavyImpact();
+              setState(() {
+                _incomingRideId = rideId;
+                _incomingTier = rideData['tier']?.toString() ?? 'standard';
+                _incomingPickupName = rideData['pickup_address']?.toString() ?? 'Pickup Location';
+                _incomingDropoffName = rideData['dropoff_address']?.toString() ?? 'Destination';
+                _incomingDistanceKm = (rideData['distance_km'] as num?)?.toDouble() ?? 5.0;
+                _incomingFareEgp = (rideData['fare_egp'] as num?)?.toDouble() ?? 65.0;
+                _hasIncomingRequest = true;
+                _countdownSeconds = 30;
+              });
+              _startCountdownTimer();
+            }
           }
-        }
-      },
-    );
-
-    _dispatchChannel!.subscribe();
-    _telemetryChannel!.subscribe();
-    } catch (e) {
-      debugPrint('[Rafik Driver] Realtime channel init notice: $e');
-    }
+        },
+      )
+      ..subscribe();
   }
 
   void _toggleOnline(bool value) async {
-    setState(() {
-      _isOnline = value;
-      _isBiometricallyVerified = true;
-      if (!_isOnline) {
-        _hasIncomingRequest = false;
-        _countdownTimer?.cancel();
-      }
-    });
-
-    // Broadcast Status Update to Admin Operations Room in Real-Time
     try {
-      final safeId = 'drv-${_driverPhone.replaceAll(RegExp(r'[^0-9]'), '')}';
-      await _telemetryChannel?.sendBroadcastMessage(
-        event: 'driver_status_update',
-        payload: {
-          'id': safeId.length > 4 ? safeId : 'drv-captain',
-          'name': _driverName,
-          'phone': _driverPhone,
-          'email': 'captain@rafik.app',
-          'status': value ? 'online' : 'offline',
-          'gender': _driverGender,
-          'isUperGirlCertified': _isUperGirlEnrolled,
-          'tier': _isUperGirlEnrolled ? 'uper_girl' : 'standard',
-          'location': {
-            'lat': _driverLocation.latitude,
-            'lng': _driverLocation.longitude,
-            'heading': 45.0,
-            'lastUpdated': DateTime.now().toIso8601String(),
-          },
-          'vehicle': {
-            'make': 'Toyota',
-            'model': 'Yaris',
-            'year': 2023,
-            'plateAr': 'س ن ق 1 4 2 9',
-            'plateEn': 'SNQ 1429',
-            'color': _isUperGirlEnrolled ? 'Rose Gold Metallic' : 'Obsidian Black',
-          },
-          'nationalId': '29804150102844',
-          'rating': 4.96,
-          'tripsCount': 14,
-          'livenessScore': 0.984,
-          'documents': {
-            'nationalIdFront': 'https://images.unsplash.com/photo-1578357078586-491adf1aa5ba?w=600',
-            'nationalIdBack': 'https://images.unsplash.com/photo-1578357078586-491adf1aa5ba?w=600',
-            'licenseFront': 'https://images.unsplash.com/photo-1544717305-2782549b5136?w=600',
-            'licenseBack': 'https://images.unsplash.com/photo-1544717305-2782549b5136?w=600',
-            'mulkiyaFront': 'https://images.unsplash.com/photo-1549317661-bd32c8ce0db2?w=600',
-            'mulkiyaBack': 'https://images.unsplash.com/photo-1549317661-bd32c8ce0db2?w=600',
-          },
-        },
-      );
-    } catch (e) {
-      debugPrint('Realtime telemetry broadcast error: $e');
-    }
-
-    if (_isOnline) {
-      HapticFeedback.lightImpact();
-      // Optional fallback: If testing alone without a second physical phone, trigger a sample request after 15s
-      Future.delayed(const Duration(seconds: 15), () {
-        if (mounted && _isOnline && !_tripAccepted && !_hasIncomingRequest) {
-          _startIncomingRequest();
+      await SupabaseService().setDriverOnline(value);
+      setState(() {
+        _isOnline = value;
+        _isBiometricallyVerified = true;
+        if (!_isOnline) {
+          _hasIncomingRequest = false;
+          _countdownTimer?.cancel();
+          _locationStreamTimer?.cancel();
+          _dispatchChannel?.unsubscribe();
+        } else {
+          _startLocationStreaming();
+          _subscribeToOffers();
         }
       });
+      HapticFeedback.lightImpact();
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Cannot change status: $e'),
+          backgroundColor: AppTheme.berryCore,
+        ),
+      );
     }
-  }
-
-  void _startIncomingRequest() {
-    setState(() {
-      _hasIncomingRequest = true;
-      _countdownSeconds = 15;
-    });
-    _startCountdownTimer();
   }
 
   void _startCountdownTimer() {
@@ -301,87 +226,103 @@ class _DriverRadarScreenState extends State<DriverRadarScreen> {
   void _acceptRide() async {
     _countdownTimer?.cancel();
     HapticFeedback.mediumImpact();
-    setState(() {
-      _hasIncomingRequest = false;
-      _tripAccepted = true;
-    });
 
-    final safeId = 'drv-${_driverPhone.replaceAll(RegExp(r'[^0-9]'), '')}';
-    // 1. PostgreSQL Database Update in Supabase
-    await SupabaseService().updateRideAccepted(
-      rideId: _incomingRideId,
-      driverId: safeId.length > 4 ? safeId : 'drv-captain',
-      driverName: _driverName,
-    );
-
-    // 2. Start Live Location Streaming
-    _startLocationStreaming();
-
-    // 3. Broadcast to Rider Device
     try {
-      await _dispatchChannel?.sendBroadcastMessage(
-        event: 'ride_accepted',
-        payload: {
-          'ride_id': _incomingRideId,
-          'driver_name': _driverName,
-          'vehicle_info': 'Toyota Yaris (س ن ق 1 4 2 9)',
-          'driver_rating': 4.96,
-          'tier': _incomingTier,
-        },
-      );
+      await SupabaseService().acceptRide(_incomingRideId);
+      setState(() {
+        _hasIncomingRequest = false;
+        _tripAccepted = true;
+      });
     } catch (e) {
-      debugPrint('Error broadcasting accept: $e');
+      setState(() => _hasIncomingRequest = false);
+      final err = e.toString();
+      final msg = err.contains('ride_unavailable')
+          ? 'Another captain accepted this ride.'
+          : 'Could not accept ride: $e';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(msg), backgroundColor: AppTheme.berryCore),
+      );
     }
   }
 
-  void _declineRide() {
+  void _declineRide() async {
     _countdownTimer?.cancel();
     setState(() => _hasIncomingRequest = false);
+    if (_incomingRideId.isNotEmpty) {
+      await SupabaseService().declineOffer(_incomingRideId);
+    }
+  }
+
+  void _markArrived() async {
+    try {
+      await SupabaseService().markArrived(_incomingRideId);
+      HapticFeedback.mediumImpact();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Marked arrived. Waiting for passenger handshake PIN.'),
+          backgroundColor: AppTheme.sageSafe,
+        ),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error: $e'), backgroundColor: AppTheme.berryCore),
+      );
+    }
   }
 
   void _verifyPin() async {
-    if (_pinInputController.text.trim() == _targetPin) {
-      HapticFeedback.heavyImpact();
-      setState(() => _pinVerified = true);
+    final enteredPin = _pinInputController.text.trim();
+    if (enteredPin.length != 4) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please enter the 4-digit safety PIN.'),
+          backgroundColor: AppTheme.berryCore,
+        ),
+      );
+      return;
+    }
 
-      // 1. Update PostgreSQL in Supabase
-      await SupabaseService().updateTripStarted(_incomingRideId);
+    try {
+      final res = await SupabaseService().startRide(
+        rideId: _incomingRideId,
+        pin: enteredPin,
+      );
 
-      // 2. Broadcast to Rider Device
-      try {
-        await _dispatchChannel?.sendBroadcastMessage(
-          event: 'trip_started',
-          payload: {
-            'ride_id': _incomingRideId,
-          },
-        );
-      } catch (e) {
-        debugPrint('Error broadcasting trip start: $e');
+      if (res['ok'] == true) {
+        HapticFeedback.heavyImpact();
+        setState(() => _pinVerified = true);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Safety PIN Verified! Trip safely started.'),
+              backgroundColor: AppTheme.sageSafe,
+            ),
+          );
+        }
+      } else {
+        HapticFeedback.vibrate();
+        final attemptsLeft = res['attempts_left'] ?? 0;
+        final error = res['error'];
+        String msg = 'Invalid PIN.';
+        if (error == 'pin_locked') {
+          msg = 'Trip start LOCKED due to 3 incorrect attempts. Please contact dispatch.';
+        } else if (error == 'wrong_pin') {
+          msg = 'Incorrect PIN! $attemptsLeft attempts remaining before lockout.';
+        }
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(msg), backgroundColor: AppTheme.berryCore),
+          );
+        }
       }
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Safety PIN Verified! Trip safely started.'),
-            backgroundColor: AppTheme.sageSafe,
-          ),
-        );
-      }
-    } else {
-      HapticFeedback.vibrate();
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Invalid PIN. Please check 4-digit code with passenger.'),
-            backgroundColor: AppTheme.alertSos,
-          ),
-        );
-      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error: $e'), backgroundColor: AppTheme.berryCore),
+      );
     }
   }
 
   void _completeTrip() async {
-    _locationStreamTimer?.cancel();
     HapticFeedback.heavyImpact();
 
     showDialog(
@@ -408,12 +349,12 @@ class _DriverRadarScreenState extends State<DriverRadarScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Amount to Collect: ${_incomingFareEgp.toStringAsFixed(2)} LE',
+              'Amount to Collect: ${_incomingFareEgp.toStringAsFixed(2)} EGP',
               style: const TextStyle(color: AppTheme.roseGold, fontSize: 18, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 8),
             const Text(
-              'Please collect the total fare from the passenger before ending the ride. Platform fee is 0.00 LE (100% earnings to you).',
+              'Please collect the total fare from the passenger before ending the ride. Platform fee is 0.00 EGP (100% earnings to you).',
               style: TextStyle(color: AppTheme.textSecondary, fontSize: 12),
             ),
           ],
@@ -437,48 +378,25 @@ class _DriverRadarScreenState extends State<DriverRadarScreen> {
 
   Future<void> _finalizeTripCompletion() async {
     try {
-      await _dispatchChannel?.sendBroadcastMessage(
-        event: 'trip_completed',
-        payload: {
-          'ride_id': _incomingRideId,
-          'fare_egp': _incomingFareEgp,
-        },
-      );
+      await SupabaseService().completeRide(_incomingRideId);
+      setState(() {
+        _tripAccepted = false;
+        _pinVerified = false;
+        _pinInputController.clear();
+        _incomingRideId = '';
+      });
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Trip completed! ${_incomingFareEgp.toStringAsFixed(2)} EGP recorded.'),
+            backgroundColor: AppTheme.sageSafe,
+          ),
+        );
+      }
     } catch (e) {
-      debugPrint('Error broadcasting complete: $e');
-    }
-
-    // Persist to PostgreSQL and update driver wallet
-    await SupabaseService().updateTripCompleted(
-      rideId: _incomingRideId,
-      finalFare: _incomingFareEgp,
-      tripData: {
-        'id': _incomingRideId,
-        'created_at': 'Today',
-        'pickup_address': _incomingPickupName,
-        'dropoff_address': _incomingDropoffName,
-        'driver_name': 'Captain Yasmine El-Sayed',
-        'vehicle_info': 'Toyota Yaris (س ن ق 1 4 2 9)',
-        'distance_km': _incomingDistanceKm,
-        'fare_amount': _incomingFareEgp,
-        'status': 'completed',
-        'payment_method': 'Cash Settlement',
-      },
-    );
-
-    setState(() {
-      _tripAccepted = false;
-      _pinVerified = false;
-      _pinInputController.clear();
-      _incomingRideId = '';
-    });
-
-    if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Trip completed! ${_incomingFareEgp.toStringAsFixed(2)} EGP credited to driver wallet.'),
-          backgroundColor: AppTheme.sageSafe,
-        ),
+        SnackBar(content: Text('Failed to complete ride: $e'), backgroundColor: AppTheme.berryCore),
       );
     }
   }
@@ -498,8 +416,7 @@ class _DriverRadarScreenState extends State<DriverRadarScreen> {
             ),
             children: [
               TileLayer(
-                urlTemplate: 'https://mt{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}',
-                subdomains: const ['0', '1', '2', '3'],
+                urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
                 userAgentPackageName: 'com.rafik.driver',
               ),
               MarkerLayer(
@@ -803,10 +720,10 @@ class _DriverRadarScreenState extends State<DriverRadarScreen> {
               const SizedBox(height: 18),
 
               PillBadge(
-                label: _incomingTier == 'uper_girl'
-                    ? 'UPER GIRL • 100% FEMALE TRIP'
-                    : 'UPER STANDARD • GENERAL TRIP',
-                variant: _incomingTier == 'uper_girl'
+                label: _incomingTier == 'rafik_girl'
+                    ? 'RAFIK GIRL • 100% FEMALE TRIP'
+                    : 'RAFIK STANDARD • GENERAL TRIP',
+                variant: _incomingTier == 'rafik_girl'
                     ? PillBadgeVariant.roseGold
                     : PillBadgeVariant.sage,
               ),

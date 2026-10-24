@@ -1,178 +1,345 @@
+import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'persistent_storage.dart';
 
-/// Centralized Supabase Database & Realtime Service for Rafik
+/// Centralized, Production-Grade Supabase Service for Rafik
+/// Strictly communicates through Row-Level Security and `SECURITY DEFINER` RPCs.
 class SupabaseService {
   static final SupabaseService _instance = SupabaseService._internal();
   factory SupabaseService() => _instance;
   SupabaseService._internal();
 
   SupabaseClient get client => Supabase.instance.client;
+  User? get currentUser => client.auth.currentUser;
 
-  /// Inserts a new ride request record in PostgreSQL `rides` table
-  Future<bool> createRideRecord({
-    required String rideId,
+  // ================= 1. PROFILE & ROLE =================
+  Future<Map<String, dynamic>?> fetchProfile() async {
+    final user = currentUser;
+    if (user == null) return null;
+
+    final response = await client
+        .from('profiles')
+        .select('*')
+        .eq('id', user.id)
+        .maybeSingle();
+
+    return response;
+  }
+
+  Future<void> updateProfileLanguage(String lang) async {
+    final user = currentUser;
+    if (user == null) return;
+    await client.from('profiles').update({'language': lang}).eq('id', user.id);
+    await PersistentStorage.setLanguage(lang);
+  }
+
+  // ================= 2. FARE CALCULATION =================
+  /// Client-side preview matching PostgreSQL `compute_fare` (server is authoritative)
+  static double computeFarePreview(double km) {
+    final calculated = 15.0 + (km * 10.0);
+    return calculated < 25.0 ? 25.0 : double.parse(calculated.toStringAsFixed(2));
+  }
+
+  // ================= 3. RIDER BOOKING & RPCS =================
+  Future<String> requestRide({
+    required String tier, // 'standard' or 'rafik_girl'
     required String pickupAddress,
-    required String dropoffAddress,
     required double pickupLat,
     required double pickupLng,
+    required String dropoffAddress,
     required double dropoffLat,
     required double dropoffLng,
-    required double fareAmount,
-    required double distanceKm,
-    required String handshakePin,
     String paymentMethod = 'cash',
   }) async {
-    try {
-      final user = client.auth.currentUser;
-      final riderId = user?.id ?? 'demo-rider-${DateTime.now().millisecondsSinceEpoch}';
+    final result = await client.rpc('request_ride', params: {
+      'tier': tier,
+      'pickup_address': pickupAddress,
+      'pickup_lat': pickupLat,
+      'pickup_lng': pickupLng,
+      'dropoff_address': dropoffAddress,
+      'dropoff_lat': dropoffLat,
+      'dropoff_lng': dropoffLng,
+      'payment': paymentMethod,
+    });
 
-      // Insert record
-      await client.from('rides').insert({
-        'id': rideId,
-        'rider_id': riderId,
-        'pickup_address': pickupAddress,
-        'dropoff_address': dropoffAddress,
-        'fare_amount': fareAmount,
-        'status': 'requested',
-        'handshake_pin': handshakePin,
+    return result.toString();
+  }
+
+  /// Rider-only query to fetch the generated 4-digit security PIN
+  Future<String?> fetchRidePin(String rideId) async {
+    try {
+      final res = await client
+          .from('ride_pins')
+          .select('pin')
+          .eq('ride_id', rideId)
+          .maybeSingle();
+      return res?['pin']?.toString();
+    } catch (e) {
+      debugPrint('[SupabaseService] fetchRidePin notice: $e');
+      return null;
+    }
+  }
+
+  Future<bool> cancelRide({
+    required String rideId,
+    String? reason,
+  }) async {
+    final result = await client.rpc('cancel_ride', params: {
+      'p_ride_id': rideId,
+      'p_reason': reason ?? 'Cancelled by user',
+    });
+    return result == true;
+  }
+
+  Future<bool> rateRide({
+    required String rideId,
+    required int stars,
+    String? review,
+  }) async {
+    final result = await client.rpc('rate_ride', params: {
+      'p_ride_id': rideId,
+      'p_stars': stars,
+      'p_review': review,
+    });
+    return result == true;
+  }
+
+  Future<bool> submitDriverRating({
+    required String rideId,
+    required double rating,
+    List<String>? badges,
+    String? comment,
+  }) async {
+    return rateRide(
+      rideId: rideId,
+      stars: rating.round().clamp(1, 5),
+      review: comment,
+    );
+  }
+
+  // ================= 4. CAPTAIN / DRIVER RPCS =================
+  Future<bool> acceptRide(String rideId) async {
+    final result = await client.rpc('accept_ride', params: {
+      'p_ride_id': rideId,
+    });
+    return result == true;
+  }
+
+  Future<bool> declineOffer(String rideId) async {
+    final result = await client.rpc('decline_offer', params: {
+      'p_ride_id': rideId,
+    });
+    return result == true;
+  }
+
+  Future<bool> markArrived(String rideId) async {
+    final result = await client.rpc('mark_arrived', params: {
+      'p_ride_id': rideId,
+    });
+    return result == true;
+  }
+
+  Future<Map<String, dynamic>> startRide({
+    required String rideId,
+    required String pin,
+  }) async {
+    final result = await client.rpc('start_ride', params: {
+      'p_ride_id': rideId,
+      'p_pin': pin,
+    });
+
+    return Map<String, dynamic>.from(result as Map);
+  }
+
+  Future<bool> completeRide(String rideId) async {
+    final result = await client.rpc('complete_ride', params: {
+      'p_ride_id': rideId,
+    });
+    return result == true;
+  }
+
+  Future<bool> setDriverOnline(bool isOnline) async {
+    final result = await client.rpc('set_driver_online', params: {
+      'p_online': isOnline,
+    });
+    return result == true;
+  }
+
+  Future<void> updateDriverLocation({
+    required double lat,
+    required double lng,
+    double heading = 0.0,
+  }) async {
+    try {
+      await client.rpc('update_driver_location', params: {
+        'lat': lat,
+        'lng': lng,
+        'heading': heading,
       });
-
-      debugPrint('Supabase: Ride record $rideId inserted successfully');
-      return true;
     } catch (e) {
-      debugPrint('Supabase insert ride notice (continuing with realtime): $e');
-      return false;
+      // Driver might be offline; silent ignore
     }
   }
 
-  /// Updates ride status when accepted by a driver
-  Future<void> updateRideAccepted({
-    required String rideId,
-    required String driverId,
-    required String driverName,
+  Future<bool> submitDriverApplication({
+    required String nationalId,
+    required String licenseNumber,
+    required String make,
+    required String model,
+    required int year,
+    required String plate,
+    required String color,
   }) async {
-    try {
-      await client.from('rides').update({
-        'driver_id': driverId,
-        'status': 'accepted',
-      }).eq('id', rideId);
-    } catch (e) {
-      debugPrint('Supabase update accepted notice: $e');
-    }
+    final result = await client.rpc('submit_driver_application', params: {
+      'national_id': nationalId,
+      'license_number': licenseNumber,
+      'make': make,
+      'model': model,
+      'year': year,
+      'plate': plate,
+      'color': color,
+    });
+    return result == true;
   }
 
-  /// Updates ride status when PIN is verified (trip started)
-  Future<void> updateTripStarted(String rideId) async {
-    try {
-      await client.from('rides').update({
-        'status': 'in_progress',
-        'started_at': DateTime.now().toIso8601String(),
-      }).eq('id', rideId);
-    } catch (e) {
-      debugPrint('Supabase update started notice: $e');
-    }
+  Future<Map<String, dynamic>?> fetchDriverStatus() async {
+    final user = currentUser;
+    if (user == null) return null;
+
+    final response = await client
+        .from('drivers')
+        .select('*')
+        .eq('user_id', user.id)
+        .maybeSingle();
+
+    return response;
   }
 
-  /// Updates ride status when trip is completed
-  Future<void> updateTripCompleted({
-    required String rideId,
-    required double finalFare,
-    required Map<String, dynamic> tripData,
+  // ================= 5. STORAGE & KYC DOCUMENTS =================
+  Future<String> uploadDriverDocument({
+    required String kind,
+    required File file,
   }) async {
-    try {
-      await client.from('rides').update({
-        'status': 'completed',
-        'completed_at': DateTime.now().toIso8601String(),
-        'fare_amount': finalFare,
-      }).eq('id', rideId);
-    } catch (e) {
-      debugPrint('Supabase update completed notice: $e');
-    }
+    final user = currentUser;
+    if (user == null) throw Exception('unauthorized');
 
-    // Always cache locally for instant access in "My Trips" screen
-    await PersistentStorage.cacheCompletedTrip(tripData);
-    await PersistentStorage.updateDriverEarnings(finalFare);
+    final storagePath = '${user.id}/$kind.jpg';
+    await client.storage.from('driver-documents').upload(
+          storagePath,
+          file,
+          fileOptions: const FileOptions(upsert: true, contentType: 'image/jpeg'),
+        );
+
+    // Record document in driver_documents table
+    await client.from('driver_documents').upsert({
+      'driver_id': user.id,
+      'kind': kind,
+      'storage_path': storagePath,
+      'status': 'pending',
+    });
+
+    return storagePath;
   }
 
-  /// Fetches past completed trips for the current user
-  Future<List<Map<String, dynamic>>> fetchUserTrips() async {
-    try {
-      final user = client.auth.currentUser;
-      if (user != null) {
-        final response = await client
-            .from('rides')
-            .select('*')
-            .eq('rider_id', user.id)
-            .order('created_at', ascending: false)
-            .limit(20);
+  Future<void> submitIdentityVerification({
+    required File idFront,
+    required File selfie,
+  }) async {
+    final user = currentUser;
+    if (user == null) throw Exception('unauthorized');
 
-        if (response.isNotEmpty) {
-          return List<Map<String, dynamic>>.from(response);
-        }
-      }
-    } catch (e) {
-      debugPrint('Error fetching trips from Supabase: $e');
-    }
+    final frontPath = '${user.id}/id_front.jpg';
+    final selfiePath = '${user.id}/selfie.jpg';
 
-    // Fallback to local persistent cache
-    return PersistentStorage.getCachedTrips();
+    await client.storage.from('identity-documents').upload(
+          frontPath,
+          idFront,
+          fileOptions: const FileOptions(upsert: true, contentType: 'image/jpeg'),
+        );
+
+    await client.storage.from('identity-documents').upload(
+          selfiePath,
+          selfie,
+          fileOptions: const FileOptions(upsert: true, contentType: 'image/jpeg'),
+        );
+
+    await client.from('identity_verifications').upsert({
+      'user_id': user.id,
+      'id_front_path': frontPath,
+      'selfie_path': selfiePath,
+      'status': 'pending',
+    });
   }
 
-  /// Fetches emergency contacts for the user
+  // ================= 6. SOS & EMERGENCY =================
+  Future<String> triggerSos({
+    required String rideId,
+    required double lat,
+    required double lng,
+  }) async {
+    final result = await client.rpc('trigger_sos', params: {
+      'p_ride_id': rideId,
+      'lat': lat,
+      'lng': lng,
+    });
+    return result.toString();
+  }
+
   Future<List<Map<String, dynamic>>> getEmergencyContacts() async {
-    try {
-      final user = client.auth.currentUser;
-      if (user != null) {
-        final response = await client
-            .from('emergency_contacts')
-            .select('*')
-            .eq('user_id', user.id);
-        return List<Map<String, dynamic>>.from(response);
-      }
-    } catch (e) {
-      debugPrint('Notice fetching emergency contacts: $e');
-    }
-    return [];
+    final user = currentUser;
+    if (user == null) return [];
+
+    final response = await client
+        .from('emergency_contacts')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('created_at', ascending: true);
+
+    return List<Map<String, dynamic>>.from(response);
   }
 
-  /// Saves an emergency contact
   Future<bool> addEmergencyContact({
     required String name,
     required String phone,
-    required String relationship,
+    String? relationship,
   }) async {
-    try {
-      final user = client.auth.currentUser;
-      final userId = user?.id ?? 'demo-user';
-      await client.from('emergency_contacts').insert({
-        'user_id': userId,
-        'contact_name': name,
-        'contact_phone': phone,
-        'relationship': relationship,
-      });
-      return true;
-    } catch (e) {
-      debugPrint('Error adding emergency contact: $e');
-      return false;
-    }
+    final user = currentUser;
+    if (user == null) return false;
+
+    await client.from('emergency_contacts').insert({
+      'user_id': user.id,
+      'contact_name': name,
+      'phone_number': phone,
+      'relationship': relationship ?? 'Family',
+    });
+
+    return true;
   }
 
-  /// Saves driver rating and review
-  Future<void> submitDriverRating({
-    required String rideId,
-    required double rating,
-    required List<String> badges,
-    String? comment,
-  }) async {
-    try {
-      await client.from('rides').update({
-        'rating': rating,
-        'notes': badges.join(', ') + (comment != null && comment.isNotEmpty ? ' | $comment' : ''),
-      }).eq('id', rideId);
-    } catch (e) {
-      debugPrint('Notice submitting rating: $e');
+  // ================= 7. TRIP HISTORY =================
+  Future<List<Map<String, dynamic>>> fetchUserTrips() async {
+    final user = currentUser;
+    if (user == null) {
+      return PersistentStorage.getCachedTrips();
     }
+
+    try {
+      final response = await client
+          .from('rides')
+          .select('*')
+          .or('rider_id.eq.${user.id},driver_id.eq.${user.id}')
+          .eq('status', 'completed')
+          .order('completed_at', ascending: false)
+          .limit(20);
+
+      if (response.isNotEmpty) {
+        return List<Map<String, dynamic>>.from(response);
+      }
+    } catch (e) {
+      debugPrint('[SupabaseService] fetchUserTrips notice: $e');
+    }
+
+    return PersistentStorage.getCachedTrips();
   }
 }

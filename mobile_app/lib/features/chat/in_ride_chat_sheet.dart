@@ -74,31 +74,65 @@ class _InRideChatSheetState extends State<InRideChatSheet> {
     ));
   }
 
-  void _initChatChannel() {
+  void _initChatChannel() async {
     try {
       final supabase = Supabase.instance.client;
-      _chatChannel = supabase.channel('refqa-chat-${widget.rideId}');
+      final myId = supabase.auth.currentUser?.id;
 
-      _chatChannel!.onBroadcast(
-        event: 'chat_message',
-        callback: (payload) {
-          final senderRole = payload['sender_role']?.toString();
-          final text = payload['text']?.toString();
-          if (text != null && senderRole != widget.myRole) {
-            HapticFeedback.lightImpact();
-            setState(() {
-              _messages.add(ChatMessage(
-                sender: senderRole ?? 'other',
-                text: text,
-                time: 'Just now',
-              ));
-            });
-            _scrollToBottom();
+      // 1. Fetch past messages
+      final past = await supabase
+          .from('messages')
+          .select('*')
+          .eq('ride_id', widget.rideId)
+          .order('created_at', ascending: true);
+
+      if (mounted && past.isNotEmpty) {
+        setState(() {
+          _messages.clear();
+          for (final m in past) {
+            final senderId = m['sender_id']?.toString();
+            final isMine = senderId == myId;
+            _messages.add(ChatMessage(
+              sender: isMine ? widget.myRole : (widget.myRole == 'rider' ? 'driver' : 'rider'),
+              text: m['body']?.toString() ?? '',
+              time: 'Recent',
+            ));
           }
-        },
-      );
+        });
+        _scrollToBottom();
+      }
 
-      _chatChannel!.subscribe();
+      // 2. Subscribe to incoming messages in real-time
+      _chatChannel = supabase.channel('chat-${widget.rideId}')
+        ..onPostgresChanges(
+          event: PostgresChangeEvent.insert,
+          schema: 'public',
+          table: 'messages',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'ride_id',
+            value: widget.rideId,
+          ),
+          callback: (payload) {
+            final rec = payload.newRecord;
+            final senderId = rec['sender_id']?.toString();
+            final body = rec['body']?.toString();
+            if (body != null && senderId != myId) {
+              HapticFeedback.lightImpact();
+              if (mounted) {
+                setState(() {
+                  _messages.add(ChatMessage(
+                    sender: widget.myRole == 'rider' ? 'driver' : 'rider',
+                    text: body,
+                    time: 'Just now',
+                  ));
+                });
+                _scrollToBottom();
+              }
+            }
+          },
+        )
+        ..subscribe();
     } catch (e) {
       debugPrint('[Rafik Chat] Channel init notice: $e');
     }
@@ -141,17 +175,16 @@ class _InRideChatSheetState extends State<InRideChatSheet> {
     _scrollToBottom();
 
     try {
-      await _chatChannel?.sendBroadcastMessage(
-        event: 'chat_message',
-        payload: {
+      final user = Supabase.instance.client.auth.currentUser;
+      if (user != null) {
+        await Supabase.instance.client.from('messages').insert({
           'ride_id': widget.rideId,
-          'sender_role': widget.myRole,
-          'text': cleanText,
-          'timestamp': DateTime.now().toIso8601String(),
-        },
-      );
+          'sender_id': user.id,
+          'body': cleanText,
+        });
+      }
     } catch (e) {
-      debugPrint('Realtime chat broadcast error: $e');
+      debugPrint('Chat insert notice: $e');
     }
   }
 

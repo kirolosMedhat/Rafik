@@ -1,74 +1,18 @@
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
-/// Rafik Local Persistent Storage Service
-/// Manages user authentication session, active role, language, theme, and cached trips.
+/// Rafik Local Storage Service
+/// Caches UI preferences (language, theme, last used tier) and a read-through trip history cache.
+/// The Supabase PostgreSQL database remains the single authoritative source of truth.
 class PersistentStorage {
-  static const String keyIsLoggedIn = 'rafik_is_logged_in';
-  static const String keyUserRole = 'rafik_user_role'; // 'rider' or 'driver'
-  static const String keyUserName = 'rafik_user_name';
-  static const String keyUserPhone = 'rafik_user_phone';
-  static const String keyUserId = 'rafik_user_id';
-  static const String keyGender = 'rafik_user_gender'; // 'female' or 'male'
-  static const String keyUperGirlEnabled = 'rafik_uper_girl_enabled'; // bool
-  static const String keyCachedTrips = 'rafik_cached_trips';
-  static const String keyDriverEarnings = 'rafik_driver_earnings';
   static const String keyLanguage = 'rafik_language'; // 'en' or 'ar'
   static const String keyThemeMode = 'rafik_theme_mode'; // 'dark', 'black', 'light'
+  static const String keySelectedTier = 'rafik_selected_tier'; // 'standard' or 'rafik_girl'
+  static const String keyCachedTrips = 'rafik_cached_trips';
+  static const String keyDriverEarningsCache = 'rafik_driver_earnings_cache';
 
-  static Future<void> saveUserSession({
-    required String id,
-    required String name,
-    required String phone,
-    required String role,
-    String gender = 'female',
-    bool uperGirlEnabled = true,
-  }) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(keyIsLoggedIn, true);
-    await prefs.setString(keyUserId, id);
-    await prefs.setString(keyUserName, name);
-    await prefs.setString(keyUserPhone, phone);
-    await prefs.setString(keyUserRole, role);
-    await prefs.setString(keyGender, gender);
-    await prefs.setBool(keyUperGirlEnabled, uperGirlEnabled);
-  }
-
-  static Future<Map<String, dynamic>?> getUserSession() async {
-    final prefs = await SharedPreferences.getInstance();
-    final isLoggedIn = prefs.getBool(keyIsLoggedIn) ?? false;
-    if (!isLoggedIn) return null;
-
-    return {
-      'id': prefs.getString(keyUserId) ?? '',
-      'name': prefs.getString(keyUserName) ?? 'Rafik User',
-      'phone': prefs.getString(keyUserPhone) ?? '',
-      'role': prefs.getString(keyUserRole) ?? 'rider',
-      'gender': prefs.getString(keyGender) ?? 'female',
-      'uperGirlEnabled': prefs.getBool(keyUperGirlEnabled) ?? true,
-    };
-  }
-
-  static Future<bool> isLoggedIn() async {
-    final prefs = await SharedPreferences.getInstance();
-    return prefs.getBool(keyIsLoggedIn) ?? false;
-  }
-
-  static Future<bool> isUperGirlEnabled() async {
-    final prefs = await SharedPreferences.getInstance();
-    return prefs.getBool(keyUperGirlEnabled) ?? true;
-  }
-
-  static Future<void> setUperGirlEnabled(bool value) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(keyUperGirlEnabled, value);
-  }
-
-  static Future<String> getUserGender() async {
-    final prefs = await SharedPreferences.getInstance();
-    return prefs.getString(keyGender) ?? 'female';
-  }
-
+  // ================= UI PREFERENCES =================
   static Future<String> getLanguage() async {
     final prefs = await SharedPreferences.getInstance();
     return prefs.getString(keyLanguage) ?? 'en';
@@ -89,48 +33,93 @@ class PersistentStorage {
     await prefs.setString(keyThemeMode, mode);
   }
 
+  static Future<String> getSelectedTier() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString(keySelectedTier) ?? 'standard';
+  }
+
+  static Future<void> setSelectedTier(String tier) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(keySelectedTier, tier);
+  }
+
+  static Future<bool> isUperGirlEnabled() async {
+    final tier = await getSelectedTier();
+    return tier == 'rafik_girl';
+  }
+
+  static Future<String> getUserGender() async {
+    final user = Supabase.instance.client.auth.currentUser;
+    final meta = user?.userMetadata;
+    return meta?['gender']?.toString() ?? 'female';
+  }
+
+  static Future<Map<String, dynamic>?> getUserSession() async {
+    final user = Supabase.instance.client.auth.currentUser;
+    if (user == null) return null;
+    return {
+      'id': user.id,
+      'name': user.userMetadata?['full_name'] ?? 'Rafik User',
+      'phone': user.phone ?? '',
+      'role': user.userMetadata?['role'] ?? 'rider',
+      'gender': user.userMetadata?['gender'] ?? 'female',
+    };
+  }
+
   static Future<void> clearSession() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(keyIsLoggedIn);
-    await prefs.remove(keyUserId);
-    await prefs.remove(keyUserName);
-    await prefs.remove(keyUserPhone);
-    await prefs.remove(keyUserRole);
-    await prefs.remove(keyGender);
-    await prefs.remove(keyUperGirlEnabled);
+    try {
+      await Supabase.instance.client.auth.signOut();
+    } catch (_) {}
+    await clearCache();
   }
 
-  /// Appends a completed ride to local trip history cache
+  // ================= READ-THROUGH TRIP CACHE =================
   static Future<void> cacheCompletedTrip(Map<String, dynamic> trip) async {
-    final prefs = await SharedPreferences.getInstance();
-    final rawList = prefs.getStringList(keyCachedTrips) ?? [];
-    rawList.insert(0, jsonEncode(trip));
-    if (rawList.length > 50) rawList.removeLast();
-    await prefs.setStringList(keyCachedTrips, rawList);
-  }
-
-  /// Retrieves list of cached trips
-  static Future<List<Map<String, dynamic>>> getCachedTrips() async {
-    final prefs = await SharedPreferences.getInstance();
-    final rawList = prefs.getStringList(keyCachedTrips) ?? [];
-    return rawList.map((str) {
-      try {
-        return jsonDecode(str) as Map<String, dynamic>;
-      } catch (_) {
-        return <String, dynamic>{};
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final tripsList = await getCachedTrips();
+      tripsList.insert(0, trip);
+      if (tripsList.length > 30) {
+        tripsList.removeLast();
       }
-    }).where((m) => m.isNotEmpty).toList();
+      await prefs.setString(keyCachedTrips, jsonEncode(tripsList));
+    } catch (_) {}
   }
 
-  /// Saves driver total earnings
-  static Future<void> updateDriverEarnings(double amount) async {
+  static Future<List<Map<String, dynamic>>> getCachedTrips() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(keyCachedTrips);
+      if (raw == null || raw.isEmpty) return [];
+      final decoded = jsonDecode(raw) as List;
+      return decoded.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+    } catch (_) {
+      return [];
+    }
+  }
+
+  static Future<void> cacheDriverEarnings(double amount) async {
     final prefs = await SharedPreferences.getInstance();
-    final current = prefs.getDouble(keyDriverEarnings) ?? 0.0;
-    await prefs.setDouble(keyDriverEarnings, current + amount);
+    final current = prefs.getDouble(keyDriverEarningsCache) ?? 0.0;
+    await prefs.setDouble(keyDriverEarningsCache, current + amount);
+  }
+
+  static Future<double> getCachedDriverEarnings() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getDouble(keyDriverEarningsCache) ?? 0.0;
   }
 
   static Future<double> getDriverEarnings() async {
+    return getCachedDriverEarnings();
+  }
+
+  static Future<void> updateDriverEarnings(double amount) async {
+    await cacheDriverEarnings(amount);
+  }
+
+  static Future<void> clearCache() async {
     final prefs = await SharedPreferences.getInstance();
-    return prefs.getDouble(keyDriverEarnings) ?? 680.0;
+    await prefs.remove(keyCachedTrips);
+    await prefs.remove(keyDriverEarningsCache);
   }
 }

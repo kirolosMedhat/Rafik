@@ -39,7 +39,7 @@ class IdOcrService {
         return const OcrVerificationResult(
           isSuccess: false,
           isFemale: false,
-          message: 'Verification Failed: Male gender detected. Refqa is exclusively restricted to verified female drivers.',
+          message: 'Verification Failed: Male gender detected. Rafik Girl is exclusively restricted to verified female captains.',
         );
       }
 

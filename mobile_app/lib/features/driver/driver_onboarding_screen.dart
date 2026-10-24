@@ -1,7 +1,9 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../core/services/supabase_service.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/pill_badge.dart';
 import '../biometrics/id_ocr_service.dart';
@@ -29,11 +31,15 @@ class _DriverOnboardingScreenState extends State<DriverOnboardingScreen> {
   bool _isSubmitting = false;
 
   // Form Controllers
+  final _nationalIdController = TextEditingController();
+  final _licenseNumberController = TextEditingController();
   final _vehicleMakeController = TextEditingController();
   final _vehicleModelController = TextEditingController();
   final _vehicleYearController = TextEditingController();
   final _plateNumberController = TextEditingController();
-  final _licenseNumberController = TextEditingController();
+
+  // Picked Document Files
+  final Map<String, File> _docFiles = {};
 
   // Document Upload State (6 Sides)
   final Map<String, bool> _uploadedDocs = {
@@ -47,11 +53,12 @@ class _DriverOnboardingScreenState extends State<DriverOnboardingScreen> {
 
   @override
   void dispose() {
+    _nationalIdController.dispose();
+    _licenseNumberController.dispose();
     _vehicleMakeController.dispose();
     _vehicleModelController.dispose();
     _vehicleYearController.dispose();
     _plateNumberController.dispose();
-    _licenseNumberController.dispose();
     super.dispose();
   }
 
@@ -66,39 +73,41 @@ class _DriverOnboardingScreenState extends State<DriverOnboardingScreen> {
         maxHeight: 1080,
       );
 
-      if (photo != null && (key == 'national_id_front' || key == 'national_id_back')) {
-        final ocrResult = await IdOcrService.verifyNationalId(photo.path);
-        if (widget.isUperGirlEnrolled && widget.driverGender == 'female' && !ocrResult.isFemale) {
-          if (mounted) {
-            HapticFeedback.vibrate();
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text(ocrResult.message ?? 'Verification notice: Rafik Girl option requires verified female identification.'),
-                backgroundColor: AppTheme.alertSos,
-                duration: const Duration(seconds: 4),
-              ),
-            );
+      if (photo != null) {
+        _docFiles[key] = File(photo.path);
+        setState(() {
+          _uploadedDocs[key] = true;
+        });
+
+        if (key == 'national_id_front' || key == 'national_id_back') {
+          final ocrResult = await IdOcrService.verifyNationalId(photo.path);
+          if (widget.isUperGirlEnrolled && widget.driverGender == 'female' && !ocrResult.isFemale) {
+            if (mounted) {
+              HapticFeedback.vibrate();
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(ocrResult.message ?? 'Verification notice: Rafik Girl option requires verified female identification.'),
+                  backgroundColor: AppTheme.alertSos,
+                  duration: const Duration(seconds: 4),
+                ),
+              );
+            }
           }
-          return;
+        }
+
+        if (mounted) {
+          HapticFeedback.mediumImpact();
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('$title captured successfully.'),
+              backgroundColor: AppTheme.sageSafe,
+              duration: const Duration(seconds: 2),
+            ),
+          );
         }
       }
     } catch (e) {
-      debugPrint('Camera/OCR error (falling back gracefully): $e');
-    }
-
-    setState(() {
-      _uploadedDocs[key] = true;
-    });
-
-    if (mounted) {
-      HapticFeedback.mediumImpact();
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('$title scanned & verified (100% On-Device ML Kit).'),
-          backgroundColor: AppTheme.sageSafe,
-          duration: const Duration(seconds: 2),
-        ),
-      );
+      debugPrint('Camera/OCR notice: $e');
     }
   }
 
@@ -114,96 +123,54 @@ class _DriverOnboardingScreenState extends State<DriverOnboardingScreen> {
       return;
     }
 
+    final nationalId = _nationalIdController.text.trim();
+    if (nationalId.length != 14) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please enter a valid 14-digit Egyptian National ID.'),
+          backgroundColor: AppTheme.berryCore,
+        ),
+      );
+      return;
+    }
+
     setState(() => _isSubmitting = true);
 
     try {
-      final supabase = Supabase.instance.client;
-      final userId = widget.driverId ?? supabase.auth.currentUser?.id;
-
-      if (userId != null) {
-        // Upsert into drivers table
-        await supabase.from('drivers').upsert({
-          'id': userId,
-          'license_number': _licenseNumberController.text.trim(),
-          'vehicle_make': _vehicleMakeController.text.trim(),
-          'vehicle_model': _vehicleModelController.text.trim(),
-          'vehicle_year': int.tryParse(_vehicleYearController.text.trim()) ?? 2023,
-          'vehicle_plate': _plateNumberController.text.trim(),
-          'verification_status': 'pending',
-          'is_online': false,
-        });
-
-        // Insert metadata records for the 6 uploaded documents
-        final docTypes = [
-          {'type': 'national_id', 'side': 'front', 'key': 'national_id_front'},
-          {'type': 'national_id', 'side': 'back', 'key': 'national_id_back'},
-          {'type': 'driver_license', 'side': 'front', 'key': 'driver_license_front'},
-          {'type': 'driver_license', 'side': 'back', 'key': 'driver_license_back'},
-          {'type': 'vehicle_registration', 'side': 'front', 'key': 'vehicle_reg_front'},
-          {'type': 'vehicle_registration', 'side': 'back', 'key': 'vehicle_reg_back'},
-        ];
-
-        for (final doc in docTypes) {
-          await supabase.from('driver_documents').insert({
-            'driver_id': userId,
-            'document_type': doc['type'],
-            'document_url': 'https://xertkpwuovmfwwwmdjbe.supabase.co/storage/v1/object/public/driver-documents/$userId/${doc['key']}.jpg',
-            'status': 'pending',
-          });
-        }
-      }
-
-      // Broadcast new registration to Admin Command Center over Supabase Realtime
-      try {
-        final regId = userId ?? 'drv-${DateTime.now().millisecondsSinceEpoch}';
-        await supabase.channel('Rafik-drivers').sendBroadcastMessage(
-          event: 'driver_registered',
-          payload: {
-            'id': regId,
-            'name': 'Captain ${_vehicleMakeController.text.trim().isNotEmpty ? _vehicleMakeController.text.trim() : 'Applicant'}',
-            'phone': '+20 100 ${DateTime.now().millisecondsSinceEpoch.toString().substring(7)}',
-            'email': '$regId@Rafik.app',
-            'nationalId': '29804150102844',
-            'gender': widget.driverGender,
-            'genderVerified': widget.driverGender == 'female',
-            'isUperGirlCertified': widget.driverGender == 'female' && widget.isUperGirlEnrolled,
-            'tier': (widget.driverGender == 'female' && widget.isUperGirlEnrolled) ? 'uper_girl' : 'standard',
-            'vehicle': {
-              'make': _vehicleMakeController.text.trim().isNotEmpty ? _vehicleMakeController.text.trim() : 'Toyota',
-              'model': _vehicleModelController.text.trim().isNotEmpty ? _vehicleModelController.text.trim() : 'Yaris',
-              'year': int.tryParse(_vehicleYearController.text.trim()) ?? 2023,
-              'plateAr': _plateNumberController.text.trim().isNotEmpty ? _plateNumberController.text.trim() : 'س ن ق 1 4 2 9',
-              'plateEn': 'SNQ 1429',
-              'color': 'Pearl White',
-            },
-            'licenseNumber': _licenseNumberController.text.trim().isNotEmpty ? _licenseNumberController.text.trim() : 'DL-CAI-2023-7429',
-            'status': 'pending',
-            'rating': 5.0,
-            'tripsCount': 0,
-            'livenessScore': 0.984,
-            'onboardedAt': DateTime.now().toIso8601String(),
-            'documents': {
-              'nationalIdFront': 'https://images.unsplash.com/photo-1578357078586-491adf1aa5ba?w=600',
-              'nationalIdBack': 'https://images.unsplash.com/photo-1578357078586-491adf1aa5ba?w=600',
-              'licenseFront': 'https://images.unsplash.com/photo-1544717305-2782549b5136?w=600',
-              'licenseBack': 'https://images.unsplash.com/photo-1544717305-2782549b5136?w=600',
-              'mulkiyaFront': 'https://images.unsplash.com/photo-1549317661-bd32c8ce0db2?w=600',
-              'mulkiyaBack': 'https://images.unsplash.com/photo-1549317661-bd32c8ce0db2?w=600',
-            },
-          },
+      // 1. Upload captured files to private bucket driver-documents
+      for (final entry in _docFiles.entries) {
+        await SupabaseService().uploadDriverDocument(
+          kind: entry.key,
+          file: entry.value,
         );
-      } catch (broadcastErr) {
-        debugPrint('Driver registration broadcast notice: $broadcastErr');
       }
+
+      // 2. Call submit_driver_application RPC
+      await SupabaseService().submitDriverApplication(
+        nationalId: nationalId,
+        licenseNumber: _licenseNumberController.text.trim().isNotEmpty
+            ? _licenseNumberController.text.trim()
+            : 'LIC-$nationalId',
+        make: _vehicleMakeController.text.trim(),
+        model: _vehicleModelController.text.trim(),
+        year: int.tryParse(_vehicleYearController.text.trim()) ?? 2023,
+        plate: _plateNumberController.text.trim(),
+        color: widget.driverGender == 'female' ? 'Pearl Rose' : 'Obsidian Black',
+      );
 
       if (mounted) {
         _showSuccessDialog();
       }
     } catch (e) {
       if (mounted) {
+        final err = e.toString();
+        String msg = 'Submission Error: $e';
+        if (err.contains('gender_mismatch_with_national_id')) {
+          msg = 'National ID does not match your registered profile gender.';
+        }
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Submission Error: $e'),
+            content: Text(msg),
             backgroundColor: AppTheme.alertSos,
           ),
         );
@@ -486,6 +453,19 @@ class _DriverOnboardingScreenState extends State<DriverOnboardingScreen> {
               ),
             ),
           ],
+        ),
+        const SizedBox(height: 14),
+
+        TextField(
+          controller: _nationalIdController,
+          keyboardType: TextInputType.number,
+          maxLength: 14,
+          style: const TextStyle(color: Colors.white, fontSize: 13, fontFamily: 'monospace'),
+          decoration: const InputDecoration(
+            labelText: 'Egyptian National ID (الرقم القومي)',
+            hintText: '14 digits',
+            counterText: '',
+          ),
         ),
         const SizedBox(height: 14),
 

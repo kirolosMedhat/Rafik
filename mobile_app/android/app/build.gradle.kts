@@ -5,7 +5,7 @@ plugins {
 }
 
 android {
-    namespace = "com.rafik.app.rafik"
+    namespace = "com.rafik"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
@@ -15,13 +15,26 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.rafik.app.rafik"
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
         multiDexEnabled = true
         manifestPlaceholders["appName"] = "Rafik"
+    }
+
+    flavorDimensions += "app"
+    productFlavors {
+        create("rider") {
+            dimension = "app"
+            applicationId = "com.rafik.rider"
+            manifestPlaceholders["appName"] = "Rafik"
+        }
+        create("driver") {
+            dimension = "app"
+            applicationId = "com.rafik.driver"
+            manifestPlaceholders["appName"] = "Rafik Captain"
+        }
     }
 
     buildTypes {

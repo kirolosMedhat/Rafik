@@ -1,5 +1,4 @@
-import 'dart:convert';
-import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -9,14 +8,21 @@ import '../../core/widgets/pill_badge.dart';
 import '../driver/driver_onboarding_screen.dart';
 import '../driver/driver_radar_screen.dart';
 import '../rider/rider_home_screen.dart';
+import 'otp_verification_sheet.dart';
 
 /// Rafik (رفيق) — Universal Authentication & Intake Screen
-/// Supports dynamic Male (Black) vs Female (Rose Obsidian) color palettes,
-/// Instant English/Arabic language toggle, OLED Night/Dark mode,
-/// Dedicated Log In & Register views, 1-Tap Google Sign-In, and instant Bypass.
+/// Dynamic Male (Midnight Jet Black) vs Female (Rose Obsidian Berry) palettes,
+/// Instant English/Arabic language toggle with RTL, OLED Night mode,
+/// Log In & Register views with pure Supabase Auth (Phone OTP, Email, Google Sign-In).
 class AuthScreen extends StatefulWidget {
   final bool initialIsDriver;
-  const AuthScreen({super.key, this.initialIsDriver = false});
+  final String initialRole;
+
+  const AuthScreen({
+    super.key,
+    this.initialIsDriver = false,
+    this.initialRole = 'rider',
+  });
 
   @override
   State<AuthScreen> createState() => _AuthScreenState();
@@ -26,24 +32,25 @@ class _AuthScreenState extends State<AuthScreen> {
   // Navigation & Role State
   late bool _isDriver;
   bool _isLoginMode = false; // Toggle between Log In and Register
+  bool _isEmailMode = false; // Phone OTP vs Email/Password
   bool _isLoading = false;
   bool _isArabic = false; // English by default, Arabic toggle
 
   // User Profile Inputs
   String _selectedGender = 'female'; // 'female' or 'male'
-  bool _uperGirlOption = true; // Rafik Girl safe ride option
   final TextEditingController _nameController = TextEditingController();
   final TextEditingController _phoneController = TextEditingController();
-  final TextEditingController _loginPhoneController = TextEditingController();
+  final TextEditingController _emailController = TextEditingController();
+  final TextEditingController _passwordController = TextEditingController();
 
   @override
   void initState() {
     super.initState();
-    _isDriver = widget.initialIsDriver;
-    _loadSavedLanguage();
+    _isDriver = widget.initialIsDriver || widget.initialRole == 'driver';
+    _loadSavedPreferences();
   }
 
-  Future<void> _loadSavedLanguage() async {
+  Future<void> _loadSavedPreferences() async {
     final lang = await PersistentStorage.getLanguage();
     if (mounted) {
       setState(() {
@@ -89,228 +96,194 @@ class _AuthScreenState extends State<AuthScreen> {
         : AppTheme.roseGoldLight;
   }
 
-  // ================= DATABASE PERSISTENCE HELPER =================
-  Future<void> _saveUserToDatabase({
-    required String name,
-    required String phone,
-    required String role,
-    required String gender,
-    required bool uperGirl,
-  }) async {
-    final userId = 'usr-${DateTime.now().millisecondsSinceEpoch}';
+  // ================= SUPABASE AUTHENTICATION =================
 
-    // 1. Local persistent storage
-    await PersistentStorage.saveUserSession(
-      id: userId,
-      name: name,
-      phone: phone,
-      role: role,
-      gender: gender,
-      uperGirlEnabled: uperGirl,
-    );
-
-    // 2. Post to backend server database (persists in backend/data/database.json)
-    try {
-      final client = HttpClient()..connectionTimeout = const Duration(seconds: 2);
-      final req = await client.postUrl(Uri.parse('http://192.168.1.13:5000/api/register'));
-      req.headers.contentType = ContentType.json;
-      req.write(jsonEncode({
-        'name': name,
-        'phone': phone,
-        'role': role,
-        'gender': gender,
-        'uperGirlOption': uperGirl,
-      }));
-      final res = await req.close().timeout(const Duration(seconds: 2));
-      debugPrint('[Rafik Database] Registered with status: ${res.statusCode}');
-    } catch (e) {
-      debugPrint('[Rafik Database Notice] LAN server offline, cached locally: $e');
+  /// Formats Egyptian phone number to E.164 (+20...)
+  String _formatPhone(String raw) {
+    var p = raw.replaceAll(RegExp(r'[^0-9+]'), '');
+    if (p.startsWith('01')) {
+      p = '+20${p.substring(1)}';
+    } else if (p.startsWith('201')) {
+      p = '+$p';
+    } else if (!p.startsWith('+')) {
+      p = '+20$p';
     }
-
-    // 3. Post to Supabase Cloud if project is active
-    try {
-      await Supabase.instance.client.from('profiles').upsert({
-        'id': userId,
-        'full_name': name,
-        'phone': phone,
-        'role': role,
-        'gender': gender,
-        'uper_girl_certified': uperGirl,
-        'created_at': DateTime.now().toIso8601String(),
-      });
-      debugPrint('[Rafik Supabase] Profile synced to cloud database: $userId');
-    } catch (e) {
-      debugPrint('[Rafik Supabase Notice] Cloud sync deferred (project sleeping or offline): $e');
-    }
+    return p;
   }
 
-  // ================= 1-TAP DEMO BYPASS =================
-  Future<void> _handleInstantBypass() async {
+  /// Sends Phone OTP via Supabase Auth
+  Future<void> _handlePhoneAuth() async {
+    final phone = _phoneController.text.trim();
+    if (phone.isEmpty || phone.length < 10) {
+      _showSnackbar(_isArabic ? 'يرجى إدخال رقم هاتف مصري صحيح' : 'Please enter a valid Egyptian phone number');
+      return;
+    }
+
+    final formattedPhone = _formatPhone(phone);
+    final name = _nameController.text.trim().isNotEmpty ? _nameController.text.trim() : 'Rafik User';
+    final role = _isDriver ? 'driver' : 'rider';
+
     setState(() => _isLoading = true);
-    HapticFeedback.mediumImpact();
-
-    final isFemale = _selectedGender == 'female';
-    final name = _isDriver
-        ? (isFemale ? 'Captain Salma Ahmed' : 'Captain Tarek Mansour')
-        : (isFemale ? 'Nourhan Kamel' : 'Karim Fahmy');
-    final phone = isFemale ? '+20 109 888 7766' : '+20 102 333 4455';
-
-    await _saveUserToDatabase(
-      name: name,
-      phone: phone,
-      role: _isDriver ? 'driver' : 'rider',
-      gender: _selectedGender,
-      uperGirl: _uperGirlOption && isFemale,
-    );
-
-    if (!mounted) return;
-    setState(() => _isLoading = false);
-
-    _navigateAfterAuth();
-  }
-
-  // ================= 1-TAP GOOGLE SIGN-IN =================
-  Future<void> _handleGoogleSignIn() async {
     HapticFeedback.lightImpact();
 
-    final isFemale = _selectedGender == 'female';
-    final defaultGoogleName = isFemale ? 'Salma Ahmed' : 'Ahmed Mahmoud';
-    final defaultGoogleEmail = isFemale ? 'salma.ahmed@gmail.com' : 'ahmed.m@gmail.com';
+    try {
+      await Supabase.instance.client.auth.signInWithOtp(
+        phone: formattedPhone,
+        data: {
+          'full_name': name,
+          'role': role,
+          'gender': _selectedGender,
+        },
+      );
 
-    // Show Google Account Selector Dialog
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF1E1E1E),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: Row(
-          children: [
-            Container(
-              width: 28,
-              height: 28,
-              decoration: const BoxDecoration(shape: BoxShape.circle, color: Colors.white),
-              child: const Center(
-                child: Text('G', style: TextStyle(fontWeight: FontWeight.w900, color: Colors.blue, fontSize: 16)),
-              ),
-            ),
-            const SizedBox(width: 12),
-            Text(
-              _isArabic ? 'تسجيل الدخول عبر Google' : 'Sign in with Google',
-              style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
-            ),
-          ],
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              _isArabic ? 'اختر حساباً للمتابعة إلى رفيق:' : 'Choose an account to continue to Rafik:',
-              style: const TextStyle(color: Colors.white70, fontSize: 12),
-            ),
-            const SizedBox(height: 16),
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: CircleAvatar(
-                backgroundColor: _currentAccent,
-                child: Text(defaultGoogleName[0], style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-              ),
-              title: Text(defaultGoogleName, style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold)),
-              subtitle: Text(defaultGoogleEmail, style: const TextStyle(color: Colors.white54, fontSize: 11)),
-              onTap: () async {
-                Navigator.pop(ctx);
-                setState(() => _isLoading = true);
+      if (!mounted) return;
+      setState(() => _isLoading = false);
 
-                await _saveUserToDatabase(
-                  name: defaultGoogleName,
-                  phone: '+20 100 123 4567',
-                  role: _isDriver ? 'driver' : 'rider',
-                  gender: _selectedGender,
-                  uperGirl: _uperGirlOption && isFemale,
-                );
-
-                if (mounted) {
-                  setState(() => _isLoading = false);
-                  _navigateAfterAuth();
-                }
-              },
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  // ================= REGISTER SUBMISSION =================
-  Future<void> _handleRegister() async {
-    final name = _nameController.text.trim();
-    final phone = _phoneController.text.trim();
-
-    if (name.isEmpty || phone.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(_isArabic ? 'يرجى إدخال الاسم ورقم الهاتف' : 'Please enter your full name and phone number.'),
-          backgroundColor: AppTheme.alertSos,
+      showModalBottomSheet(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: Colors.transparent,
+        builder: (ctx) => OtpVerificationSheet(
+          phoneNumber: formattedPhone,
+          userName: name,
+          role: role,
+          gender: _selectedGender,
+          onVerified: _navigateAfterAuth,
         ),
       );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _isLoading = false);
+      _showSnackbar('SMS OTP Error: $e');
+    }
+  }
+
+  /// Email & Password Sign Up / Sign In
+  Future<void> _handleEmailAuth() async {
+    final email = _emailController.text.trim();
+    final password = _passwordController.text.trim();
+    final name = _nameController.text.trim().isNotEmpty ? _nameController.text.trim() : 'Rafik User';
+    final role = _isDriver ? 'driver' : 'rider';
+
+    if (email.isEmpty || !email.contains('@')) {
+      _showSnackbar(_isArabic ? 'يرجى إدخال بريد إلكتروني صحيح' : 'Please enter a valid email address');
+      return;
+    }
+    if (password.length < 6) {
+      _showSnackbar(_isArabic ? 'كلمة المرور يجب أن لا تقل عن 6 أحرف' : 'Password must be at least 6 characters');
       return;
     }
 
     setState(() => _isLoading = true);
-    HapticFeedback.mediumImpact();
 
-    await _saveUserToDatabase(
-      name: name,
-      phone: phone,
-      role: _isDriver ? 'driver' : 'rider',
-      gender: _selectedGender,
-      uperGirl: _uperGirlOption && (_selectedGender == 'female'),
-    );
+    try {
+      final supabase = Supabase.instance.client;
+      if (_isLoginMode) {
+        await supabase.auth.signInWithPassword(email: email, password: password);
+      } else {
+        await supabase.auth.signUp(
+          email: email,
+          password: password,
+          data: {
+            'full_name': name,
+            'role': role,
+            'gender': _selectedGender,
+          },
+        );
+      }
 
-    if (!mounted) return;
-    setState(() => _isLoading = false);
-
-    _navigateAfterAuth();
+      if (mounted) {
+        setState(() => _isLoading = false);
+        _navigateAfterAuth();
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isLoading = false);
+        _showSnackbar('Auth Error: $e');
+      }
+    }
   }
 
-  // ================= LOG IN SUBMISSION =================
-  Future<void> _handleLogin() async {
-    final phone = _loginPhoneController.text.trim();
-    if (phone.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(_isArabic ? 'يرجى إدخال رقم الهاتف' : 'Please enter your registered phone number.'),
-          backgroundColor: AppTheme.alertSos,
-        ),
+  /// Google OAuth Sign In
+  Future<void> _handleGoogleSignIn() async {
+    setState(() => _isLoading = true);
+    try {
+      await Supabase.instance.client.auth.signInWithOAuth(
+        OAuthProvider.google,
+        redirectTo: kIsWeb ? null : 'rafik://login-callback',
       );
-      return;
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isLoading = false);
+        _showSnackbar('Google Sign-In Notice: $e');
+      }
+    }
+  }
+
+  /// Debug Mode Instant Bypass (Seed Test Account)
+  Future<void> _handleDebugBypass() async {
+    if (!kDebugMode) return;
+    setState(() => _isLoading = true);
+
+    final role = _isDriver ? 'driver' : 'rider';
+    final email = '${role}_${_selectedGender}_dev@rafik.internal';
+
+    try {
+      await Supabase.instance.client.auth.signInWithPassword(
+        email: email,
+        password: 'DevPassword123!',
+      );
+    } catch (_) {
+      // If dev account does not exist, sign up
+      try {
+        await Supabase.instance.client.auth.signUp(
+          email: email,
+          password: 'DevPassword123!',
+          data: {
+            'full_name': 'Dev ${role.toUpperCase()}',
+            'role': role,
+            'gender': _selectedGender,
+          },
+        );
+      } catch (_) {}
     }
 
-    setState(() => _isLoading = true);
-    HapticFeedback.mediumImpact();
-
-    await _saveUserToDatabase(
-      name: _selectedGender == 'female' ? 'Mona Kamel' : 'Karim Fahmy',
-      phone: phone,
-      role: _isDriver ? 'driver' : 'rider',
-      gender: _selectedGender,
-      uperGirl: _selectedGender == 'female',
-    );
-
-    if (!mounted) return;
-    setState(() => _isLoading = false);
-
-    _navigateAfterAuth();
+    if (mounted) {
+      setState(() => _isLoading = false);
+      _navigateAfterAuth();
+    }
   }
 
-  void _navigateAfterAuth() {
+  /// Post-Authentication Router
+  Future<void> _navigateAfterAuth() async {
+    if (!mounted) return;
+
     if (_isDriver) {
+      // Check if driver has an approved or submitted application
+      final user = Supabase.instance.client.auth.currentUser;
+      if (user != null) {
+        final driverRow = await Supabase.instance.client
+            .from('drivers')
+            .select('status')
+            .eq('user_id', user.id)
+            .maybeSingle();
+
+        if (!mounted) return;
+        if (driverRow != null) {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (_) => const DriverRadarScreen()),
+          );
+          return;
+        }
+      }
+
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(
           builder: (_) => DriverOnboardingScreen(
             driverGender: _selectedGender,
-            isUperGirlEnrolled: _uperGirlOption && (_selectedGender == 'female'),
+            isUperGirlEnrolled: _selectedGender == 'female',
           ),
         ),
       );
@@ -322,522 +295,413 @@ class _AuthScreenState extends State<AuthScreen> {
     }
   }
 
+  void _showSnackbar(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: AppTheme.berryCore,
+        duration: const Duration(seconds: 4),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: _currentBg,
-      body: SafeArea(
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            return SingleChildScrollView(
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-              child: ConstrainedBox(
-                constraints: BoxConstraints(minHeight: constraints.maxHeight - 32),
-                child: IntrinsicHeight(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.center,
-                    children: [
-                      // ================= TOP BAR (LANG & MODE) =================
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          // Status Badge
-                          PillBadge(
-                            label: _selectedGender == 'male' ? 'TITANIUM BLACK' : 'ROSE OBSIDIAN',
-                            variant: _selectedGender == 'male' ? PillBadgeVariant.dark : PillBadgeVariant.roseGold,
-                          ),
+    return Directionality(
+      textDirection: _isArabic ? TextDirection.rtl : TextDirection.ltr,
+      child: Scaffold(
+        backgroundColor: _currentBg,
+        body: SafeArea(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                // Top Bar: Brand, Language Toggle & Mode Indicator
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    PillBadge(
+                      label: _isDriver
+                          ? (_isArabic ? 'كابتن رَفِيق' : 'RAFIK CAPTAIN')
+                          : (_isArabic ? 'رَاكِب رَفِيق' : 'RAFIK RIDER'),
+                      variant: _selectedGender == 'male'
+                          ? PillBadgeVariant.dark
+                          : PillBadgeVariant.roseGold,
+                    ),
 
-                          // Language Toggle Button (EN | عربي)
-                          InkWell(
-                            onTap: _toggleLanguage,
-                            borderRadius: BorderRadius.circular(20),
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                              decoration: BoxDecoration(
-                                color: _currentCardBg,
-                                borderRadius: BorderRadius.circular(20),
-                                border: Border.all(color: _currentAccent.withValues(alpha: 0.4)),
-                              ),
-                              child: Row(
-                                children: [
-                                  const Icon(Icons.language, size: 14, color: Colors.white70),
-                                  const SizedBox(width: 6),
-                                  Text(
-                                    _isArabic ? 'English (EN)' : 'عربي (AR)',
-                                    style: TextStyle(
-                                      color: _currentAccentLight,
-                                      fontSize: 11,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-
-                      const SizedBox(height: 16),
-
-                      // ================= LOGO =================
-                      Container(
-                        width: 76,
-                        height: 76,
+                    // Language Toggle Button
+                    InkWell(
+                      onTap: _toggleLanguage,
+                      borderRadius: BorderRadius.circular(20),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
                         decoration: BoxDecoration(
                           color: _currentCardBg,
-                          borderRadius: BorderRadius.circular(22),
-                          border: Border.all(color: _currentAccent.withValues(alpha: 0.4)),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withValues(alpha: 0.5),
-                              blurRadius: 16,
-                              offset: const Offset(0, 6),
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(color: _currentBorder),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(Icons.language, size: 16, color: _currentAccentLight),
+                            const SizedBox(width: 6),
+                            Text(
+                              _isArabic ? 'English' : 'عربي',
+                              style: TextStyle(
+                                color: _currentAccentLight,
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
+                              ),
                             ),
                           ],
                         ),
-                        clipBehavior: Clip.antiAlias,
-                        child: Image.asset('assets/images/logo.png', fit: BoxFit.cover),
                       ),
+                    ),
+                  ],
+                ),
 
+                const SizedBox(height: 24),
+
+                // Hero Branding Card
+                Container(
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    color: _currentCardBg,
+                    borderRadius: BorderRadius.circular(24),
+                    border: Border.all(color: _currentBorder),
+                  ),
+                  child: Column(
+                    children: [
+                      Container(
+                        width: 64,
+                        height: 64,
+                        decoration: BoxDecoration(
+                          color: _currentAccent.withOpacity(0.15),
+                          shape: BoxShape.circle,
+                          border: Border.all(color: _currentAccent, width: 2),
+                        ),
+                        child: Center(
+                          child: Icon(
+                            _isDriver ? Icons.local_taxi : Icons.location_on,
+                            color: _currentAccentLight,
+                            size: 32,
+                          ),
+                        ),
+                      ),
                       const SizedBox(height: 12),
-
-                      // Brand Titles
                       const Text(
                         'RAFIK',
                         style: TextStyle(
                           color: Colors.white,
                           fontSize: 26,
                           fontWeight: FontWeight.w900,
-                          letterSpacing: 8,
+                          letterSpacing: 6,
                         ),
                       ),
-                      const SizedBox(height: 2),
                       Text(
-                        _isArabic ? 'رَفِـــيــق | رفيق جيرل' : 'RAFIK | SMART MOBILITY',
+                        _isArabic ? 'المنظومة الذكية للتنقل الآمن في مصر' : 'SMART MOBILITY FOR GREATER CAIRO',
                         style: TextStyle(
                           color: _currentAccentLight,
-                          fontSize: 13,
+                          fontSize: 11,
                           fontWeight: FontWeight.bold,
                         ),
                       ),
+                    ],
+                  ),
+                ),
 
-                      const SizedBox(height: 20),
+                const SizedBox(height: 20),
 
-                      // ================= 1-TAP DEMO BYPASS BUTTON =================
-                      SizedBox(
-                        width: double.infinity,
-                        child: ElevatedButton.icon(
-                          onPressed: _isLoading ? null : _handleInstantBypass,
-                          icon: const Icon(Icons.flash_on, color: Colors.amber, size: 18),
-                          label: Text(
-                            _isArabic
-                                ? '⚡ دخول تجريبي فوري مباشر (بدون انتظار)'
-                                : '⚡ 1-TAP INSTANT DEMO BYPASS',
-                            style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 12, letterSpacing: 0.8),
-                          ),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFF2E1A23),
-                            foregroundColor: Colors.white,
-                            side: const BorderSide(color: Colors.amber, width: 1.2),
-                            padding: const EdgeInsets.symmetric(vertical: 12),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                          ),
-                        ),
-                      ),
-
-                      const SizedBox(height: 16),
-
-                      // ================= AUTH TABS: [LOG IN] vs [REGISTER] =================
-                      Container(
-                        padding: const EdgeInsets.all(4),
-                        decoration: BoxDecoration(
-                          color: _currentCardBg,
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(color: _currentBorder),
-                        ),
-                        child: Row(
-                          children: [
-                            Expanded(
-                              child: GestureDetector(
-                                onTap: () => setState(() => _isLoginMode = false),
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(vertical: 10),
-                                  decoration: BoxDecoration(
-                                    color: !_isLoginMode ? _currentAccent : Colors.transparent,
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                  child: Center(
-                                    child: Text(
-                                      _isArabic ? 'إنشاء حساب جديد' : 'Register Account',
-                                      style: TextStyle(
-                                        color: !_isLoginMode ? Colors.white : Colors.white60,
-                                        fontSize: 12,
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ),
-                            Expanded(
-                              child: GestureDetector(
-                                onTap: () => setState(() => _isLoginMode = true),
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(vertical: 10),
-                                  decoration: BoxDecoration(
-                                    color: _isLoginMode ? _currentAccent : Colors.transparent,
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                  child: Center(
-                                    child: Text(
-                                      _isArabic ? 'تسجيل الدخول' : 'Log In',
-                                      style: TextStyle(
-                                        color: _isLoginMode ? Colors.white : Colors.white60,
-                                        fontSize: 12,
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-
-                      const SizedBox(height: 16),
-
-                      // ================= DYNAMIC FORM CONTAINER =================
-                      if (!_isLoginMode) ...[
-                        // -------- REGISTER VIEW --------
-                        // 1. Role Toggle (Rider vs Driver)
-                        Container(
-                          padding: const EdgeInsets.all(3),
+                // Gender Toggle (Determines UI Palette & Rafik Girl Eligibility)
+                Row(
+                  children: [
+                    Expanded(
+                      child: GestureDetector(
+                        onTap: () => setState(() => _selectedGender = 'female'),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(vertical: 12),
                           decoration: BoxDecoration(
-                            color: _currentCardBg,
+                            color: _selectedGender == 'female'
+                                ? AppTheme.roseGold.withOpacity(0.2)
+                                : _currentCardBg,
                             borderRadius: BorderRadius.circular(14),
-                            border: Border.all(color: _currentBorder),
-                          ),
-                          child: Row(
-                            children: [
-                              Expanded(
-                                child: GestureDetector(
-                                  onTap: () => setState(() => _isDriver = false),
-                                  child: Container(
-                                    padding: const EdgeInsets.symmetric(vertical: 8),
-                                    decoration: BoxDecoration(
-                                      color: !_isDriver ? _currentAccent.withValues(alpha: 0.3) : Colors.transparent,
-                                      borderRadius: BorderRadius.circular(10),
-                                    ),
-                                    child: Center(
-                                      child: Text(
-                                        _isArabic ? 'راكب (Passenger)' : 'Passenger / Rider',
-                                        style: TextStyle(
-                                          color: !_isDriver ? Colors.white : Colors.white60,
-                                          fontSize: 11,
-                                          fontWeight: FontWeight.bold,
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ),
-                              Expanded(
-                                child: GestureDetector(
-                                  onTap: () => setState(() => _isDriver = true),
-                                  child: Container(
-                                    padding: const EdgeInsets.symmetric(vertical: 8),
-                                    decoration: BoxDecoration(
-                                      color: _isDriver ? AppTheme.sageSafe.withValues(alpha: 0.4) : Colors.transparent,
-                                      borderRadius: BorderRadius.circular(10),
-                                    ),
-                                    child: Center(
-                                      child: Text(
-                                        _isArabic ? 'كابتن (Driver Partner)' : 'Captain / Driver',
-                                        style: TextStyle(
-                                          color: _isDriver ? Colors.white : Colors.white60,
-                                          fontSize: 11,
-                                          fontWeight: FontWeight.bold,
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-
-                        const SizedBox(height: 14),
-
-                        // 2. Gender Selection (Changes background color!)
-                        Align(
-                          alignment: Alignment.centerLeft,
-                          child: Text(
-                            _isArabic ? 'تحديد الجنس (يحدد لون الخلفية)' : 'SELECT GENDER (SETS APP THEME):',
-                            style: const TextStyle(color: Colors.white70, fontSize: 10, fontWeight: FontWeight.bold, letterSpacing: 1),
-                          ),
-                        ),
-                        const SizedBox(height: 6),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: GestureDetector(
-                                onTap: () => setState(() {
-                                  _selectedGender = 'female';
-                                  _uperGirlOption = true;
-                                }),
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(vertical: 10),
-                                  decoration: BoxDecoration(
-                                    color: _selectedGender == 'female'
-                                        ? const Color(0xFFB76E79).withValues(alpha: 0.25)
-                                        : _currentCardBg,
-                                    borderRadius: BorderRadius.circular(12),
-                                    border: Border.all(
-                                      color: _selectedGender == 'female' ? const Color(0xFFB76E79) : _currentBorder,
-                                      width: _selectedGender == 'female' ? 2 : 1,
-                                    ),
-                                  ),
-                                  child: Row(
-                                    mainAxisAlignment: MainAxisAlignment.center,
-                                    children: [
-                                      const Icon(Icons.female, color: Color(0xFFE8B4B8), size: 18),
-                                      const SizedBox(width: 6),
-                                      Text(
-                                        _isArabic ? 'أنثى (Rose Obsidian)' : 'Female (Rose Theme)',
-                                        style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ),
+                            border: Border.all(
+                              color: _selectedGender == 'female'
+                                  ? AppTheme.roseGold
+                                  : _currentBorder,
+                              width: _selectedGender == 'female' ? 2 : 1,
                             ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: GestureDetector(
-                                onTap: () => setState(() {
-                                  _selectedGender = 'male';
-                                  _uperGirlOption = false;
-                                }),
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(vertical: 10),
-                                  decoration: BoxDecoration(
-                                    color: _selectedGender == 'male'
-                                        ? const Color(0xFF3B82F6).withValues(alpha: 0.25)
-                                        : _currentCardBg,
-                                    borderRadius: BorderRadius.circular(12),
-                                    border: Border.all(
-                                      color: _selectedGender == 'male' ? const Color(0xFF3B82F6) : _currentBorder,
-                                      width: _selectedGender == 'male' ? 2 : 1,
-                                    ),
-                                  ),
-                                  child: Row(
-                                    mainAxisAlignment: MainAxisAlignment.center,
-                                    children: [
-                                      const Icon(Icons.male, color: Color(0xFF93C5FD), size: 18),
-                                      const SizedBox(width: 6),
-                                      Text(
-                                        _isArabic ? 'ذكر (Pure Black)' : 'Male (Black Theme)',
-                                        style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-
-                        const SizedBox(height: 12),
-
-                        // 3. Rafik Girl Option (Only for females)
-                        if (_selectedGender == 'female')
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                            decoration: BoxDecoration(
-                              color: _uperGirlOption ? AppTheme.roseGold.withValues(alpha: 0.12) : _currentCardBg,
-                              borderRadius: BorderRadius.circular(12),
-                              border: Border.all(color: _uperGirlOption ? AppTheme.roseGold : _currentBorder),
-                            ),
-                            child: Row(
-                              children: [
-                                const Icon(Icons.shield_outlined, color: AppTheme.roseGoldLight, size: 18),
-                                const SizedBox(width: 10),
-                                Expanded(
-                                  child: Text(
-                                    _isDriver
-                                        ? (_isArabic ? 'كابتن رفيق جيرل (سيدات فقط)' : 'Rafik Girl Fleet (Female Riders Only)')
-                                        : (_isArabic ? 'خيار رفيق جيرل (رحلات آمنة مع سائقات)' : 'Rafik Girl (Pair with Female Captains)'),
-                                    style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
-                                  ),
-                                ),
-                                Switch(
-                                  value: _uperGirlOption,
-                                  activeColor: AppTheme.roseGold,
-                                  onChanged: (val) => setState(() => _uperGirlOption = val),
-                                ),
-                              ],
-                            ),
-                          ),
-
-                        const SizedBox(height: 12),
-
-                        // 4. Full Name Input
-                        TextField(
-                          controller: _nameController,
-                          style: const TextStyle(color: Colors.white, fontSize: 13),
-                          decoration: InputDecoration(
-                            labelText: _isArabic ? 'الاسم الكامل الرسمي' : 'Full Legal Name',
-                            hintText: _isDriver ? 'e.g. Salma Ahmed' : 'e.g. Mona Kamel',
-                            filled: true,
-                            fillColor: _currentCardBg,
-                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: _currentBorder)),
-                          ),
-                        ),
-
-                        const SizedBox(height: 10),
-
-                        // 5. Mobile Phone Input
-                        TextField(
-                          controller: _phoneController,
-                          keyboardType: TextInputType.phone,
-                          style: const TextStyle(color: Colors.white, fontSize: 13, fontFamily: 'monospace'),
-                          decoration: InputDecoration(
-                            labelText: _isArabic ? 'رقم الهاتف المحمول' : 'Mobile Phone',
-                            hintText: '010 1234 5678',
-                            prefixText: '+20  ',
-                            filled: true,
-                            fillColor: _currentCardBg,
-                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: _currentBorder)),
-                          ),
-                        ),
-
-                        const SizedBox(height: 14),
-
-                        // 6. Create Account Button
-                        SizedBox(
-                          width: double.infinity,
-                          child: ElevatedButton(
-                            onPressed: _isLoading ? null : _handleRegister,
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: _isDriver ? AppTheme.sageSafe : _currentAccent,
-                              padding: const EdgeInsets.symmetric(vertical: 13),
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                            ),
-                            child: _isLoading
-                                ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                                : Text(
-                                    _isDriver
-                                        ? (_isArabic ? 'متابعة إلى رفع المستندات ➔' : 'CONTINUE TO DOCUMENT UPLOADS ➔')
-                                        : (_isArabic ? 'إنشاء حساب راكب ➔' : 'CREATE RIDER ACCOUNT ➔'),
-                                    style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold),
-                                  ),
-                          ),
-                        ),
-                      ] else ...[
-                        // -------- LOG IN VIEW --------
-                        const SizedBox(height: 10),
-                        TextField(
-                          controller: _loginPhoneController,
-                          keyboardType: TextInputType.phone,
-                          style: const TextStyle(color: Colors.white, fontSize: 13, fontFamily: 'monospace'),
-                          decoration: InputDecoration(
-                            labelText: _isArabic ? 'رقم الهاتف المسجل' : 'Registered Mobile Phone',
-                            hintText: '010 1234 5678',
-                            prefixText: '+20  ',
-                            filled: true,
-                            fillColor: _currentCardBg,
-                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: _currentBorder)),
-                          ),
-                        ),
-                        const SizedBox(height: 14),
-                        SizedBox(
-                          width: double.infinity,
-                          child: ElevatedButton(
-                            onPressed: _isLoading ? null : _handleLogin,
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: _currentAccent,
-                              padding: const EdgeInsets.symmetric(vertical: 13),
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                            ),
-                            child: _isLoading
-                                ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                                : Text(
-                                    _isArabic ? 'تسجيل الدخول الآن ➔' : 'LOG IN NOW ➔',
-                                    style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold),
-                                  ),
-                          ),
-                        ),
-                      ],
-
-                      const SizedBox(height: 16),
-
-                      // Google Sign In Option
-                      SizedBox(
-                        width: double.infinity,
-                        child: OutlinedButton(
-                          onPressed: _isLoading ? null : _handleGoogleSignIn,
-                          style: OutlinedButton.styleFrom(
-                            backgroundColor: _currentCardBg,
-                            side: BorderSide(color: _currentAccent.withValues(alpha: 0.4)),
-                            padding: const EdgeInsets.symmetric(vertical: 12),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                           ),
                           child: Row(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
-                              Container(
-                                width: 18,
-                                height: 18,
-                                decoration: const BoxDecoration(shape: BoxShape.circle, color: Colors.white),
-                                child: const Center(
-                                  child: Text('G', style: TextStyle(fontWeight: FontWeight.w900, color: Colors.blue, fontSize: 12)),
-                                ),
+                              Icon(
+                                Icons.female,
+                                color: _selectedGender == 'female' ? AppTheme.roseGold : Colors.white54,
                               ),
-                              const SizedBox(width: 10),
+                              const SizedBox(width: 8),
                               Text(
-                                _isArabic ? 'المتابعة بحساب Google' : 'Continue with Google',
-                                style: const TextStyle(color: Colors.white, fontSize: 12.5, fontWeight: FontWeight.w600),
+                                _isArabic ? 'أنثى (وردي)' : 'Female (Rose)',
+                                style: TextStyle(
+                                  color: _selectedGender == 'female' ? AppTheme.roseGold : Colors.white70,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 13,
+                                ),
                               ),
                             ],
                           ),
                         ),
                       ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: GestureDetector(
+                        onTap: () => setState(() => _selectedGender = 'male'),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          decoration: BoxDecoration(
+                            color: _selectedGender == 'male'
+                                ? const Color(0xFF3B82F6).withOpacity(0.2)
+                                : _currentCardBg,
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(
+                              color: _selectedGender == 'male'
+                                  ? const Color(0xFF3B82F6)
+                                  : _currentBorder,
+                              width: _selectedGender == 'male' ? 2 : 1,
+                            ),
+                          ),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(
+                                Icons.male,
+                                color: _selectedGender == 'male' ? const Color(0xFF3B82F6) : Colors.white54,
+                              ),
+                              const SizedBox(width: 8),
+                              Text(
+                                _isArabic ? 'ذكر (أسود)' : 'Male (Black)',
+                                style: TextStyle(
+                                  color: _selectedGender == 'male' ? const Color(0xFF93C5FD) : Colors.white70,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 13,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
 
-                      const Spacer(),
+                const SizedBox(height: 20),
 
-                      // ================= TOGGLE LINK AT BOTTOM =================
-                      Center(
-                        child: TextButton(
-                          onPressed: () => setState(() => _isLoginMode = !_isLoginMode),
-                          child: Text(
-                            _isLoginMode
-                                ? (_isArabic ? 'ليس لديك حساب؟ إنشاء حساب جديد' : "Don't have an account? Register here")
-                                : (_isArabic ? 'لديك حساب بالفعل؟ تسجيل الدخول' : "Already registered? Log in here"),
-                            style: TextStyle(
-                              color: _currentAccentLight,
-                              fontSize: 12,
-                              fontWeight: FontWeight.bold,
+                // Auth Mode Tabs: Log In vs Register
+                Container(
+                  padding: const EdgeInsets.all(4),
+                  decoration: BoxDecoration(
+                    color: _currentCardBg,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: _currentBorder),
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: GestureDetector(
+                          onTap: () => setState(() => _isLoginMode = false),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(vertical: 10),
+                            decoration: BoxDecoration(
+                              color: !_isLoginMode ? _currentAccent : Colors.transparent,
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Center(
+                              child: Text(
+                                _isArabic ? 'إنشاء حساب جديد' : 'Create Account',
+                                style: TextStyle(
+                                  color: !_isLoginMode ? Colors.black : Colors.white70,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 13,
+                                ),
+                              ),
                             ),
                           ),
                         ),
                       ),
-
-                      const SizedBox(height: 12),
-
-                      // Copyright
-                      Text(
-                        _isArabic ? 'جميع الحقوق محفوظة لـ رفيق 2026' : 'All rights reserved to Rafik 2026',
-                        style: const TextStyle(color: Colors.white38, fontSize: 10),
+                      Expanded(
+                        child: GestureDetector(
+                          onTap: () => setState(() => _isLoginMode = true),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(vertical: 10),
+                            decoration: BoxDecoration(
+                              color: _isLoginMode ? _currentAccent : Colors.transparent,
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Center(
+                              child: Text(
+                                _isArabic ? 'تسجيل الدخول' : 'Sign In',
+                                style: TextStyle(
+                                  color: _isLoginMode ? Colors.black : Colors.white70,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 13,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
                       ),
-                      const SizedBox(height: 6),
                     ],
                   ),
                 ),
-              ),
-            );
-          },
+
+                const SizedBox(height: 20),
+
+                // Input Fields
+                if (!_isLoginMode) ...[
+                  TextField(
+                    controller: _nameController,
+                    style: const TextStyle(color: Colors.white),
+                    decoration: InputDecoration(
+                      labelText: _isArabic ? 'الاسم بالكامل' : 'Full Name',
+                      labelStyle: const TextStyle(color: Colors.white54),
+                      prefixIcon: Icon(Icons.person_outline, color: _currentAccentLight),
+                      filled: true,
+                      fillColor: _currentCardBg,
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide(color: _currentBorder)),
+                      enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide(color: _currentBorder)),
+                      focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide(color: _currentAccent, width: 2)),
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                ],
+
+                if (!_isEmailMode) ...[
+                  TextField(
+                    controller: _phoneController,
+                    keyboardType: TextInputType.phone,
+                    style: const TextStyle(color: Colors.white),
+                    decoration: InputDecoration(
+                      labelText: _isArabic ? 'رقم الهاتف (01xxxxxxxxx)' : 'Phone Number (01xxxxxxxxx)',
+                      labelStyle: const TextStyle(color: Colors.white54),
+                      prefixIcon: Icon(Icons.phone_outlined, color: _currentAccentLight),
+                      filled: true,
+                      fillColor: _currentCardBg,
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide(color: _currentBorder)),
+                      enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide(color: _currentBorder)),
+                      focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide(color: _currentAccent, width: 2)),
+                    ),
+                  ),
+                ] else ...[
+                  TextField(
+                    controller: _emailController,
+                    keyboardType: TextInputType.emailAddress,
+                    style: const TextStyle(color: Colors.white),
+                    decoration: InputDecoration(
+                      labelText: _isArabic ? 'البريد الإلكتروني' : 'Email Address',
+                      labelStyle: const TextStyle(color: Colors.white54),
+                      prefixIcon: Icon(Icons.email_outlined, color: _currentAccentLight),
+                      filled: true,
+                      fillColor: _currentCardBg,
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide(color: _currentBorder)),
+                      enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide(color: _currentBorder)),
+                      focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide(color: _currentAccent, width: 2)),
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  TextField(
+                    controller: _passwordController,
+                    obscureText: true,
+                    style: const TextStyle(color: Colors.white),
+                    decoration: InputDecoration(
+                      labelText: _isArabic ? 'كلمة المرور' : 'Password',
+                      labelStyle: const TextStyle(color: Colors.white54),
+                      prefixIcon: Icon(Icons.lock_outline, color: _currentAccentLight),
+                      filled: true,
+                      fillColor: _currentCardBg,
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide(color: _currentBorder)),
+                      enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide(color: _currentBorder)),
+                      focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide(color: _currentAccent, width: 2)),
+                    ),
+                  ),
+                ],
+
+                const SizedBox(height: 12),
+
+                // Switch between Phone OTP and Email Auth
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton(
+                    onPressed: () => setState(() => _isEmailMode = !_isEmailMode),
+                    child: Text(
+                      _isEmailMode
+                          ? (_isArabic ? 'استخدم رقم الهاتف ورمز التحقق' : 'Use Phone & SMS OTP instead')
+                          : (_isArabic ? 'استخدم البريد وكلمة المرور' : 'Use Email & Password instead'),
+                      style: TextStyle(color: _currentAccentLight, fontSize: 12, fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                ),
+
+                const SizedBox(height: 12),
+
+                // Main Action Button
+                SizedBox(
+                  height: 54,
+                  child: ElevatedButton(
+                    onPressed: _isLoading
+                        ? null
+                        : (_isEmailMode ? _handleEmailAuth : _handlePhoneAuth),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: _currentAccent,
+                      foregroundColor: Colors.black,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                    ),
+                    child: _isLoading
+                        ? const SizedBox(height: 24, width: 24, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black))
+                        : Text(
+                            _isLoginMode
+                                ? (_isArabic ? 'دخول إلى الحساب' : 'Sign In')
+                                : (_isArabic ? 'إرسال رمز التأكيد والمتابعة' : 'Continue with Verification'),
+                            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                          ),
+                  ),
+                ),
+
+                const SizedBox(height: 16),
+
+                // Google Sign In Button
+                SizedBox(
+                  height: 50,
+                  child: OutlinedButton.icon(
+                    onPressed: _isLoading ? null : _handleGoogleSignIn,
+                    icon: const Icon(Icons.g_mobiledata, size: 28, color: Colors.white),
+                    label: Text(
+                      _isArabic ? 'المتابعة بحساب Google' : 'Continue with Google',
+                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                    ),
+                    style: OutlinedButton.styleFrom(
+                      side: BorderSide(color: _currentBorder),
+                      backgroundColor: _currentCardBg,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                    ),
+                  ),
+                ),
+
+                // Debug Test Bypass Button (Strictly in kDebugMode)
+                if (kDebugMode) ...[
+                  const SizedBox(height: 20),
+                  TextButton.icon(
+                    onPressed: _handleDebugBypass,
+                    icon: const Icon(Icons.developer_mode, size: 16, color: Colors.white38),
+                    label: Text(
+                      'Dev Seed Bypass (${_isDriver ? 'Driver' : 'Rider'} $_selectedGender)',
+                      style: const TextStyle(color: Colors.white38, fontSize: 12),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
         ),
       ),
     );

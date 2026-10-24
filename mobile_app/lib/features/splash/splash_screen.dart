@@ -28,10 +28,10 @@ class _RafikSplashScreenState extends State<RafikSplashScreen>
     super.initState();
     _controller = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 2400),
+      duration: const Duration(milliseconds: 1800),
     );
 
-    // 1. Pin Drop: 0ms to 900ms with elastic bounce
+    // 1. Pin Drop: 0ms to 700ms with elastic bounce
     _pinDropAnimation = Tween<double>(begin: -100.0, end: 0.0).animate(
       CurvedAnimation(
         parent: _controller,
@@ -39,7 +39,7 @@ class _RafikSplashScreenState extends State<RafikSplashScreen>
       ),
     );
 
-    // 2. Letter 'R' Expansion: 400ms to 1200ms
+    // 2. Letter 'R' Expansion: 300ms to 900ms
     _rScaleAnimation = Tween<double>(begin: 0.8, end: 1.0).animate(
       CurvedAnimation(
         parent: _controller,
@@ -47,16 +47,16 @@ class _RafikSplashScreenState extends State<RafikSplashScreen>
       ),
     );
 
-    // 3. Typography Reveal: 1000ms to 1800ms
+    // 3. Typography Reveal: 700ms to 1400ms
     _textFadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
       CurvedAnimation(
         parent: _controller,
-        curve: const Interval(0.5, 0.85, curve: Curves.easeIn),
+        curve: const Interval(0.45, 0.85, curve: Curves.easeIn),
       ),
     );
 
     _controller.forward().then((_) {
-      Future.delayed(const Duration(milliseconds: 600), () {
+      Future.delayed(const Duration(milliseconds: 300), () {
         if (mounted) {
           widget.onAnimationComplete();
         }
@@ -79,13 +79,16 @@ class _RafikSplashScreenState extends State<RafikSplashScreen>
     return Scaffold(
       backgroundColor: bgColor,
       body: SafeArea(
-        child: AnimatedBuilder(
-          animation: _controller,
-          builder: (context, child) {
-            return Column(
-              children: [
-                const Spacer(),
-                // Animated Pin-in-R Monogram
+        child: Center(
+          child: AnimatedBuilder(
+            animation: _controller,
+            builder: (context, child) {
+              return Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  const Spacer(),
+                  // Animated Pin-in-R Monogram
                 Transform.scale(
                   scale: _rScaleAnimation.value,
                   child: SizedBox(
@@ -194,8 +197,9 @@ class _RafikSplashScreenState extends State<RafikSplashScreen>
           },
         ),
       ),
-    );
-  }
+    ),
+  );
+}
 }
 
 /// Custom Vector Painter for the Rafik Pin-in-R Monogram
