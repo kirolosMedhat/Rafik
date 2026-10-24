@@ -4,6 +4,12 @@ credentials.txt
 .env
 .env.local
 .env.*.local
+mobile_app/env/*.json
+!mobile_app/env/example.json
+admin_portal/config.js
+**/key.properties
+*.jks
+*.keystore
 
 # Node.js
 node_modules/
