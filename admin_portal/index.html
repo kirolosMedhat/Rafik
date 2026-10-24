@@ -7,15 +7,17 @@
   
   <!-- Tailwind CSS CDN -->
   <script src="https://cdn.tailwindcss.com"></script>
-  <!-- Google Fonts: Inter -->
+  <!-- Google Fonts -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
   <!-- Leaflet CSS & JS for Cairo Fleet Map -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <!-- Supabase JS Client CDN -->
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  
+  <!-- Runtime Config & Pinned Supabase JS Client -->
+  <script src="config.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.1/dist/umd/supabase.min.js"></script>
 
   <script>
     tailwind.config = {
@@ -48,86 +50,57 @@
       color: #FCE4E6;
       font-family: 'Plus Jakarta Sans', sans-serif;
     }
+    #map {
+      height: 480px;
+      width: 100%;
+      border-radius: 16px;
+      background: #000;
+    }
     .pill-badge {
       display: inline-flex;
       align-items: center;
-      padding: 0.2rem 0.6rem;
+      padding: 3px 10px;
       border-radius: 9999px;
-      font-size: 0.65rem;
+      font-size: 11px;
       font-weight: 700;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-      font-family: 'JetBrains Mono', monospace;
+      letter-spacing: 0.5px;
     }
     .pill-rose {
-      background: rgba(183, 110, 121, 0.15);
+      background-color: rgba(183, 110, 121, 0.15);
       color: #E8B4B8;
       border: 1px solid rgba(183, 110, 121, 0.4);
     }
     .pill-sage {
-      background: rgba(107, 142, 35, 0.15);
-      color: #98C738;
+      background-color: rgba(107, 142, 35, 0.15);
+      color: #88D4A2;
       border: 1px solid rgba(107, 142, 35, 0.4);
     }
     .pill-alert {
-      background: rgba(229, 57, 53, 0.2);
-      color: #FF8A80;
-      border: 1px solid rgba(229, 57, 53, 0.5);
+      background-color: rgba(229, 57, 53, 0.15);
+      color: #FFA4A2;
+      border: 1px solid rgba(229, 57, 53, 0.4);
     }
     .pill-offline {
-      background: rgba(150, 150, 150, 0.15);
-      color: #A0A0A0;
-      border: 1px solid rgba(150, 150, 150, 0.3);
+      background-color: rgba(255, 255, 255, 0.05);
+      color: rgba(255, 255, 255, 0.5);
+      border: 1px solid rgba(255, 255, 255, 0.1);
     }
-    #map {
-      height: 500px;
-      border-radius: 16px;
-      z-index: 10;
-    }
-    .leaflet-container {
-      background: #140A0F !important;
-    }
-    /* Custom scrollbar */
-    ::-webkit-scrollbar {
-      width: 6px;
-      height: 6px;
-    }
-    ::-webkit-scrollbar-track {
-      background: #12080C;
-    }
-    ::-webkit-scrollbar-thumb {
-      background: #2D141E;
-      border-radius: 3px;
-    }
-    ::-webkit-scrollbar-thumb:hover {
-      background: #B76E79;
-    }
-    .sos-flashing {
-      animation: pulseAlert 1.2s infinite;
-    }
-    @keyframes pulseAlert {
-      0%, 100% { background-color: rgba(229, 57, 53, 0.15); border-color: rgba(229, 57, 53, 0.8); }
-      50% { background-color: rgba(229, 57, 53, 0.35); border-color: #E53935; }
-    }
-    /* Egyptian Plate Graphic */
     .egypt-plate {
-      display: inline-flex;
-      flex-direction: column;
+      width: 120px;
       border: 2px solid #000;
       border-radius: 4px;
       overflow: hidden;
       box-shadow: 0 2px 4px rgba(0,0,0,0.5);
       font-family: 'JetBrains Mono', monospace;
-      min-width: 140px;
     }
     .egypt-plate-header {
-      background: #0077c8; /* Egyptian private car blue */
-      color: white;
-      text-align: center;
+      background: #0d47a1;
+      color: #fff;
       font-size: 8px;
-      font-weight: 800;
-      padding: 1px 4px;
-      letter-spacing: 2px;
+      text-align: center;
+      padding: 1px 0;
+      font-weight: 900;
+      letter-spacing: 1px;
     }
     .egypt-plate-body {
       background: #fff;
@@ -135,13 +108,40 @@
       display: flex;
       justify-content: space-between;
       align-items: center;
-      padding: 2px 8px;
+      padding: 2px 6px;
       font-weight: 900;
-      font-size: 13px;
+      font-size: 11px;
     }
   </style>
 </head>
 <body class="min-h-screen flex flex-col antialiased selection:bg-roseGold selection:text-black">
+
+  <!-- ADMIN AUTHENTICATION MODAL OVERLAY -->
+  <div id="adminLoginModal" class="fixed inset-0 z-[100] bg-black/95 backdrop-blur-xl flex items-center justify-center p-4">
+    <div class="bg-refqaCard border border-refqaBorder max-w-md w-full p-8 rounded-3xl shadow-2xl text-center space-y-6">
+      <div class="w-16 h-16 rounded-2xl bg-roseGold/20 border border-roseGold flex items-center justify-center mx-auto text-2xl font-black text-roseGold">
+        R
+      </div>
+      <div>
+        <h2 class="text-xl font-extrabold text-white">Rafik Command Center</h2>
+        <p class="text-xs text-roseGoldLight/60 mt-1">Authorized Operations Staff Only (role: admin)</p>
+      </div>
+      <div class="space-y-4 text-left">
+        <div>
+          <label class="text-[11px] font-bold text-roseGold uppercase block mb-1">Admin Email</label>
+          <input type="email" id="adminEmailInput" placeholder="admin@rafik.app" class="w-full bg-refqaBg border border-white/10 rounded-xl px-4 py-2.5 text-xs text-white focus:border-roseGold outline-none" />
+        </div>
+        <div>
+          <label class="text-[11px] font-bold text-roseGold uppercase block mb-1">Password</label>
+          <input type="password" id="adminPasswordInput" placeholder="••••••••" class="w-full bg-refqaBg border border-white/10 rounded-xl px-4 py-2.5 text-xs text-white focus:border-roseGold outline-none" />
+        </div>
+        <div id="adminAuthError" class="text-xs text-alertSos font-semibold hidden"></div>
+      </div>
+      <button onclick="handleAdminLogin()" id="btnAdminLogin" class="w-full py-3 bg-roseGold text-black font-extrabold text-xs rounded-xl hover:bg-roseGoldLight transition">
+        Authenticate & Enter Command Center
+      </button>
+    </div>
+  </div>
 
   <!-- TOP APP BAR -->
   <header class="border-b border-refqaBorder bg-refqaCard/80 backdrop-blur-md sticky top-0 z-50 px-6 py-3.5">
@@ -150,23 +150,28 @@
       <!-- Brand & Title -->
       <div class="flex items-center space-x-4">
         <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-roseGold to-berryCore flex items-center justify-center font-bold text-black border border-roseGoldLight/40 shadow-lg shadow-roseGold/20 text-lg">
-          U
+          R
         </div>
         <div>
           <div class="flex items-center space-x-2">
             <h1 class="text-lg font-extrabold tracking-wider text-roseGoldLight">RAFIK</h1>
-            <span class="text-xs text-roseGold/70 font-semibold">| RAFIK GIRL</span>
-            <span class="pill-badge pill-sage">OPERATIONS COMMAND CENTER</span>
+            <span class="text-xs text-roseGold/70 font-semibold">| OPERATIONS COMMAND</span>
+            <span class="pill-badge pill-sage" id="adminRolePill">PURE SUPABASE ARCHITECTURE</span>
           </div>
-          <p class="text-xs text-roseGoldLight/50">Standard Ride-Hailing & Rafik Girl Safe Mode — Live Production Stream</p>
+          <p class="text-xs text-roseGoldLight/50">PostgreSQL • PostGIS Dispatch • Row Level Security • Live Realtime</p>
         </div>
       </div>
 
-      <!-- Live Indicators -->
+      <!-- Live Indicators & Auth Controls -->
       <div class="flex items-center space-x-4">
         <div id="connectionPill" class="flex items-center space-x-2 bg-refqaCard border border-refqaBorder px-3 py-1.5 rounded-xl text-xs font-mono">
           <span id="connPulse" class="w-2 h-2 rounded-full bg-sageSafe animate-pulse"></span>
-          <span id="connStatusText" class="text-roseGoldLight/80">REALTIME WEBSOCKET: CONNECTED</span>
+          <span id="connStatusText" class="text-roseGoldLight/80">REALTIME: ACTIVE</span>
+        </div>
+        <div id="adminUserPill" class="hidden sm:flex items-center space-x-2 bg-refqaCard border border-white/10 px-3 py-1.5 rounded-xl text-xs">
+          <span class="w-2 h-2 rounded-full bg-roseGold"></span>
+          <span id="adminUserEmail" class="text-white font-mono text-[11px]">admin@rafik.app</span>
+          <button onclick="handleAdminLogout()" class="text-alertSos hover:underline text-[10px] ml-2 font-bold uppercase">Logout</button>
         </div>
         <div class="hidden sm:block text-right">
           <div id="liveClock" class="text-xs font-mono font-bold text-roseGoldLight">--:--:-- GMT+2</div>
@@ -179,21 +184,25 @@
 
   <!-- MAIN NAVIGATION TABS -->
   <div class="border-b border-refqaBorder bg-refqaCard/40">
-    <div class="max-w-7xl mx-auto px-6 flex space-x-8 text-xs font-bold tracking-wider">
-      <button onclick="switchTab('kyc')" id="tab-btn-kyc" class="py-3.5 border-b-2 border-roseGold text-roseGold flex items-center space-x-2 transition">
-        <span>DRIVER ROSTER & KYC VAULT</span>
+    <div class="max-w-7xl mx-auto px-6 flex space-x-6 text-xs font-bold tracking-wider overflow-x-auto">
+      <button onclick="switchTab('kyc')" id="tab-btn-kyc" class="py-3.5 border-b-2 border-roseGold text-roseGold flex items-center space-x-2 transition shrink-0">
+        <span>CAPTAINS & KYC VAULT</span>
         <span class="bg-roseGold/20 text-roseGold px-1.5 py-0.5 rounded text-[10px]" id="kycBadgeCount">0 CAPTAINS</span>
       </button>
-      <button onclick="switchTab('fleet')" id="tab-btn-fleet" class="py-3.5 border-b-2 border-transparent text-roseGoldLight/60 hover:text-roseGoldLight flex items-center space-x-2 transition">
-        <span>LIVE FLEET & DISPATCH RADAR</span>
+      <button onclick="switchTab('identities')" id="tab-btn-identities" class="py-3.5 border-b-2 border-transparent text-roseGoldLight/60 hover:text-roseGoldLight flex items-center space-x-2 transition shrink-0">
+        <span>RAFIK GIRL IDENTITY QUEUE</span>
+        <span class="bg-roseGold/20 text-roseGold px-1.5 py-0.5 rounded text-[10px]" id="identitiesBadgeCount">0 PENDING</span>
+      </button>
+      <button onclick="switchTab('fleet')" id="tab-btn-fleet" class="py-3.5 border-b-2 border-transparent text-roseGoldLight/60 hover:text-roseGoldLight flex items-center space-x-2 transition shrink-0">
+        <span>LIVE FLEET RADAR</span>
         <span class="w-2 h-2 rounded-full bg-sageSafe" id="fleetDot"></span>
       </button>
-      <button onclick="switchTab('sos')" id="tab-btn-sos" class="py-3.5 border-b-2 border-transparent text-roseGoldLight/60 hover:text-roseGoldLight flex items-center space-x-2 transition">
+      <button onclick="switchTab('sos')" id="tab-btn-sos" class="py-3.5 border-b-2 border-transparent text-roseGoldLight/60 hover:text-roseGoldLight flex items-center space-x-2 transition shrink-0">
         <span>EMERGENCY SOS LOGS</span>
         <span class="pill-badge pill-alert" id="sosHeaderBadge">POLICE 122 READY</span>
       </button>
-      <button onclick="switchTab('analytics')" id="tab-btn-analytics" class="py-3.5 border-b-2 border-transparent text-roseGoldLight/60 hover:text-roseGoldLight flex items-center space-x-2 transition">
-        <span>FINANCIAL & METRICS</span>
+      <button onclick="switchTab('analytics')" id="tab-btn-analytics" class="py-3.5 border-b-2 border-transparent text-roseGoldLight/60 hover:text-roseGoldLight flex items-center space-x-2 transition shrink-0">
+        <span>METRICS & PRICING</span>
         <span class="pill-badge pill-sage">10 LE / KM</span>
       </button>
     </div>
@@ -202,37 +211,51 @@
   <!-- CONTENT CONTAINER -->
   <main class="max-w-7xl mx-auto px-6 py-8 flex-1 w-full">
 
-    <!-- ================= 1. TAB: DRIVER KYC REVIEW QUEUE ================= -->
+    <!-- ================= 1. TAB: CAPTAINS & KYC REVIEW ================= -->
     <section id="tab-kyc" class="space-y-6">
       <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h2 class="text-xl font-extrabold text-white">Verified Captains & Onboarding Roster</h2>
-          <p class="text-xs text-roseGoldLight/60 mt-1">Live synchronized data from Driver Mobile Applications. Inspect full profile, 6-sided documents, and Egyptian ID verification.</p>
+          <h2 class="text-xl font-extrabold text-white">Captains & Vehicle Onboarding Roster</h2>
+          <p class="text-xs text-roseGoldLight/60 mt-1">Review government KYC documents from private bucket via signed URLs. Approve or reject with required audit reasons.</p>
         </div>
         <div class="flex items-center space-x-2">
-          <!-- Filter Buttons -->
           <div class="inline-flex flex-wrap rounded-xl bg-refqaCard border border-refqaBorder p-1 text-xs gap-1">
             <button onclick="setDriverFilter('all')" id="filter-all" class="px-3 py-1 rounded-lg font-semibold bg-roseGold text-black">All (<span id="count-all">0</span>)</button>
-            <button onclick="setDriverFilter('uper_girl')" id="filter-uper_girl" class="px-3 py-1 rounded-lg font-semibold text-roseGoldLight/70 hover:text-white">🛡️ Rafik Girl (<span id="count-uper_girl">0</span>)</button>
-            <button onclick="setDriverFilter('standard')" id="filter-standard" class="px-3 py-1 rounded-lg font-semibold text-roseGoldLight/70 hover:text-white">⚡ Rafik Standard (<span id="count-standard">0</span>)</button>
-            <button onclick="setDriverFilter('online')" id="filter-online" class="px-3 py-1 rounded-lg font-semibold text-roseGoldLight/70 hover:text-white">Online (<span id="count-online">0</span>)</button>
             <button onclick="setDriverFilter('pending')" id="filter-pending" class="px-3 py-1 rounded-lg font-semibold text-roseGoldLight/70 hover:text-white">Pending (<span id="count-pending">0</span>)</button>
+            <button onclick="setDriverFilter('online')" id="filter-online" class="px-3 py-1 rounded-lg font-semibold text-roseGoldLight/70 hover:text-white">Online (<span id="count-online">0</span>)</button>
+            <button onclick="setDriverFilter('rafik_girl')" id="filter-rafik_girl" class="px-3 py-1 rounded-lg font-semibold text-roseGoldLight/70 hover:text-white">🛡️ Rafik Girl (<span id="count-rafik_girl">0</span>)</button>
+            <button onclick="setDriverFilter('standard')" id="filter-standard" class="px-3 py-1 rounded-lg font-semibold text-roseGoldLight/70 hover:text-white">⚡ Standard (<span id="count-standard">0</span>)</button>
           </div>
         </div>
       </div>
 
-      <!-- Live Dynamic Applicant Cards Grid -->
+      <!-- Applicant Cards Grid -->
       <div class="grid grid-cols-1 md:grid-cols-2 gap-6" id="applicantGrid">
-        <!-- Dynamically rendered by renderDriversList() -->
+        <!-- Dynamically rendered -->
       </div>
     </section>
 
-    <!-- ================= 2. TAB: LIVE CAIRO FLEET & DISPATCH RADAR ================= -->
+    <!-- ================= 2. TAB: RAFIK GIRL RIDERS IDENTITY QUEUE ================= -->
+    <section id="tab-identities" class="space-y-6 hidden">
+      <div class="flex items-center justify-between">
+        <div>
+          <h2 class="text-xl font-extrabold text-white">Rafik Girl — Rider Identity Verification Queue</h2>
+          <p class="text-xs text-roseGoldLight/60 mt-1">Review government ID front and biometric selfie to verify female riders for Rafik Girl access.</p>
+        </div>
+        <span class="pill-badge pill-rose" id="pendingIdentitiesBadge">0 PENDING</span>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-6" id="identitiesGrid">
+        <!-- Dynamically rendered -->
+      </div>
+    </section>
+
+    <!-- ================= 3. TAB: LIVE CAIRO FLEET RADAR ================= -->
     <section id="tab-fleet" class="space-y-6 hidden">
       <div class="flex items-center justify-between">
         <div>
           <h2 class="text-xl font-extrabold text-white">Live Cairo Fleet & Real-Time Dispatch Radar</h2>
-          <p class="text-xs text-roseGoldLight/60 mt-1">Driver locations and active trips streaming over Supabase WebSocket Broadcast channel <code class="text-roseGold">refqa-telemetry</code>.</p>
+          <p class="text-xs text-roseGoldLight/60 mt-1">Live captain locations streaming directly from PostgreSQL PostGIS driver_locations table.</p>
         </div>
         <div class="flex items-center space-x-3">
           <span class="pill-badge pill-sage" id="onlineDriversPill">0 CAPTAINS ONLINE</span>
@@ -240,7 +263,7 @@
         </div>
       </div>
 
-      <!-- Map Container with Free Google Maps Engine -->
+      <!-- Map Container with OpenStreetMap -->
       <div class="bg-refqaCard rounded-2xl border border-refqaBorder p-4">
         <div id="map"></div>
       </div>
@@ -252,101 +275,75 @@
           <span class="text-[10px] text-roseGoldLight/50 font-mono">AUTOSCROLLING • REALTIME</span>
         </div>
         <div id="telemetryLog" class="space-y-2 font-mono text-xs max-h-56 overflow-y-auto pr-2">
-          <!-- Dynamically populated in real time -->
+          <!-- Dynamically populated -->
         </div>
       </div>
     </section>
 
-    <!-- ================= 3. TAB: EMERGENCY SOS LOGS ================= -->
+    <!-- ================= 4. TAB: EMERGENCY SOS LOGS ================= -->
     <section id="tab-sos" class="space-y-6 hidden">
       <div class="flex items-center justify-between">
         <div>
-          <h2 class="text-xl font-extrabold text-white">Emergency Assistance & Police 122 Dispatch Board</h2>
-          <p class="text-xs text-roseGoldLight/60 mt-1">Real-time distress monitoring and direct linkage with Egyptian Emergency Police (122).</p>
+          <h2 class="text-xl font-extrabold text-white">Egyptian Police (122) Distress & SOS Command Log</h2>
+          <p class="text-xs text-roseGoldLight/60 mt-1">Audible alerts and real-time records from PostgreSQL sos_events table.</p>
         </div>
-        <span class="pill-badge pill-sage" id="sosSystemHealth">SYSTEM HEALTH: SECURE</span>
+        <span class="pill-badge pill-alert" id="sosCounterPill">0 ACTIVE INCIDENTS</span>
       </div>
 
-      <div class="bg-refqaCard rounded-2xl border border-refqaBorder p-6">
-        <div class="flex items-center justify-between p-4 rounded-xl bg-alertSos/10 border border-alertSos/30">
-          <div class="flex items-center space-x-3">
-            <div class="w-10 h-10 rounded-full bg-alertSos/20 border border-alertSos flex items-center justify-center font-bold text-alertSos">
-              !
-            </div>
-            <div>
-              <div class="flex items-center space-x-2">
-                <span class="font-bold text-white text-sm">Emergency Distress Simulation Drill</span>
-                <span class="pill-badge pill-alert">DRILL READY</span>
-              </div>
-              <p class="text-xs text-roseGoldLight/60">Trigger test passenger SOS to verify immediate Cairo police linkage and telemetry.</p>
-            </div>
-          </div>
-          <button onclick="simulateSosTrigger()" class="px-4 py-2 bg-alertSos hover:bg-alertSos/90 text-white font-bold rounded-xl text-xs transition">
-            Trigger Drill SOS
-          </button>
-        </div>
-
-        <div class="mt-6">
-          <h3 class="text-xs font-bold tracking-wider text-roseGold uppercase mb-3">Live Distress Incidents Stream</h3>
-          <table class="w-full text-left text-xs font-mono">
-            <thead>
-              <tr class="border-b border-white/10 text-roseGoldLight/50">
-                <th class="py-2.5">TIMESTAMP</th>
-                <th>PASSENGER</th>
-                <th>LOCATION</th>
-                <th>DRIVER ASSIGNED</th>
-                <th>STATUS</th>
-                <th>POLICE DISPATCH ACTION</th>
+      <div class="bg-refqaCard rounded-2xl border border-refqaBorder overflow-hidden">
+        <div class="overflow-x-auto">
+          <table class="w-full text-left text-xs">
+            <thead class="bg-refqaBg border-b border-white/10 text-roseGold uppercase text-[10px] font-mono">
+              <tr>
+                <th class="p-4">Incident ID</th>
+                <th class="p-4">Timestamp</th>
+                <th class="p-4">Passenger</th>
+                <th class="p-4">Status</th>
+                <th class="p-4">Action</th>
               </tr>
             </thead>
-            <tbody id="sosTableBody">
-              <!-- Dynamically populated in real time -->
+            <tbody id="sosTableBody" class="divide-y divide-white/5 font-mono">
+              <!-- Dynamically populated -->
             </tbody>
           </table>
         </div>
       </div>
     </section>
 
-    <!-- ================= 4. TAB: FINANCIAL & METRICS ================= -->
+    <!-- ================= 5. TAB: METRICS & PRICING ================= -->
     <section id="tab-analytics" class="space-y-6 hidden">
       <div class="flex items-center justify-between">
         <div>
-          <h2 class="text-xl font-extrabold text-white">Platform Performance & Financial Overview</h2>
-          <p class="text-xs text-roseGoldLight/60 mt-1">Operational metrics computed live based on 10.00 LE / km dynamic fare formula and zero-cost cloud architecture.</p>
+          <h2 class="text-xl font-extrabold text-white">Platform Analytics & Financial Health</h2>
+          <p class="text-xs text-roseGoldLight/60 mt-1">Live metrics from admin_metrics_view view. 0% platform commission model.</p>
         </div>
-        <span class="pill-badge pill-sage">INFRASTRUCTURE COST: $0.00</span>
+        <span class="pill-badge pill-sage">0% COMMISSION MODEL</span>
       </div>
 
-      <!-- KPI Grid (Dynamically Computed) -->
       <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
-        <div class="bg-refqaCard p-5 rounded-2xl border border-refqaBorder">
-          <span class="text-[10px] font-mono font-bold tracking-wider text-roseGold uppercase">Total Completed Rides</span>
-          <div class="mt-2 text-3xl font-extrabold text-white" id="kpiTotalRides">0</div>
-          <span class="text-xs text-sageSafe mt-1 block">100% Female-to-Female</span>
+        <div class="p-6 rounded-2xl bg-refqaCard border border-refqaBorder">
+          <span class="text-xs text-roseGoldLight/60 uppercase block">Total Completed Rides</span>
+          <span class="text-3xl font-extrabold text-white mt-2 block" id="kpiTotalRides">0</span>
         </div>
-        <div class="bg-refqaCard p-5 rounded-2xl border border-refqaBorder">
-          <span class="text-[10px] font-mono font-bold tracking-wider text-roseGold uppercase">Gross Fare Volume</span>
-          <div class="mt-2 text-3xl font-extrabold text-white"><span id="kpiGrossVolume">0.00</span> <span class="text-base text-roseGold">LE</span></div>
-          <span class="text-xs text-roseGoldLight/60 mt-1 block">Dynamic 10 LE / KM Formula</span>
+        <div class="p-6 rounded-2xl bg-refqaCard border border-refqaBorder">
+          <span class="text-xs text-roseGoldLight/60 uppercase block">Gross Ride Volume</span>
+          <span class="text-3xl font-extrabold text-roseGold mt-2 block"><span id="kpiGrossVolume">0.00</span> LE</span>
         </div>
-        <div class="bg-refqaCard p-5 rounded-2xl border border-refqaBorder">
-          <span class="text-[10px] font-mono font-bold tracking-wider text-roseGold uppercase">Active Verified Captains</span>
-          <div class="mt-2 text-3xl font-extrabold text-white" id="kpiActiveCaptains">0</div>
-          <span class="text-xs text-sageSafe mt-1 block">0% Platform Commission</span>
+        <div class="p-6 rounded-2xl bg-refqaCard border border-refqaBorder">
+          <span class="text-xs text-roseGoldLight/60 uppercase block">Active Online Captains</span>
+          <span class="text-3xl font-extrabold text-sageSafe mt-2 block" id="kpiActiveCaptains">0</span>
         </div>
-        <div class="bg-refqaCard p-5 rounded-2xl border border-refqaBorder">
-          <span class="text-[10px] font-mono font-bold tracking-wider text-roseGold uppercase">Safety Incident Rate</span>
-          <div class="mt-2 text-3xl font-extrabold text-sageSafe" id="kpiSafetyRate">100.0%</div>
-          <span class="text-xs text-roseGoldLight/60 mt-1 block">Zero Unresolved Harassment</span>
+        <div class="p-6 rounded-2xl bg-refqaCard border border-refqaBorder">
+          <span class="text-xs text-roseGoldLight/60 uppercase block">Platform Commission</span>
+          <span class="text-3xl font-extrabold text-white mt-2 block">0.00 LE (0%)</span>
         </div>
       </div>
 
-      <div class="bg-refqaCard p-6 rounded-2xl border border-refqaBorder space-y-4">
-        <h3 class="text-sm font-bold text-white">Dynamic Cairo Fare Breakdown Standard</h3>
-        <p class="text-xs text-roseGoldLight/60">Formulated in accordance with current Egyptian fuel benchmarks and driver profitability guarantee.</p>
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2 font-mono text-xs">
+      <div class="p-6 rounded-2xl bg-refqaCard border border-refqaBorder">
+        <h3 class="text-sm font-bold text-white uppercase tracking-wider mb-4">Cairo Metropolitan Fare Schedule</h3>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs font-mono">
           <div class="p-4 rounded-xl bg-refqaBg border border-white/5">
-            <span class="text-roseGoldLight/50 block">BASE DISPATCH FEE</span>
+            <span class="text-roseGoldLight/50 block">BASE PICKUP FEE</span>
             <span class="text-lg font-bold text-white">15.00 LE</span>
           </div>
           <div class="p-4 rounded-xl bg-refqaBg border border-white/5">
@@ -363,22 +360,22 @@
 
   </main>
 
-  <!-- ================= DRIVER FULL PROFILE & DOSSIER MODAL ================= -->
-  <div id="driverProfileModal" class="fixed inset-0 bg-black/85 backdrop-blur-md z-50 hidden flex items-center justify-center p-4">
+  <!-- ================= DRIVER FULL DOSSIER MODAL ================= -->
+  <div id="driverProfileModal" class="fixed inset-0 bg-black/90 backdrop-blur-md z-50 hidden flex items-center justify-center p-4">
     <div class="bg-refqaCard border border-refqaBorder rounded-3xl max-w-4xl w-full max-h-[90vh] flex flex-col shadow-2xl overflow-hidden">
       
       <!-- Modal Header -->
       <div class="p-6 border-b border-white/10 flex items-center justify-between bg-refqaBg/60">
         <div class="flex items-center space-x-4">
-          <div id="dossierAvatar" class="w-14 h-14 rounded-2xl bg-gradient-to-br from-roseGold to-berryCore flex items-center justify-center font-extrabold text-2xl text-black border-2 border-roseGoldLight/50 shadow-lg shadow-roseGold/20">
-            Y
+          <div id="dossierAvatar" class="w-14 h-14 rounded-2xl bg-gradient-to-br from-roseGold to-berryCore flex items-center justify-center font-extrabold text-2xl text-black border-2 border-roseGoldLight/50">
+            C
           </div>
           <div>
             <div class="flex items-center space-x-2">
               <h3 class="text-xl font-extrabold text-white" id="dossierName">Captain Name</h3>
-              <span id="dossierStatusBadge" class="pill-badge pill-sage">ONLINE</span>
+              <span id="dossierStatusBadge" class="pill-badge pill-sage">PENDING</span>
             </div>
-            <p class="text-xs text-roseGoldLight/70 font-mono mt-0.5" id="dossierContact">+20 100 000 0000 • email@refqa.app</p>
+            <p class="text-xs text-roseGoldLight/70 font-mono mt-0.5" id="dossierContact">-- • --</p>
           </div>
         </div>
         <button onclick="closeDossierModal()" class="w-9 h-9 rounded-full bg-white/5 hover:bg-white/10 flex items-center justify-center text-roseGoldLight hover:text-white text-lg transition">
@@ -386,162 +383,116 @@
         </button>
       </div>
 
-      <!-- Modal Body (Scrollable) -->
+      <!-- Modal Body -->
       <div class="p-6 overflow-y-auto space-y-6 flex-1 text-xs">
         
-        <!-- SECTION 1: EGYPTIAN NATIONAL ID & BIOMETRICS -->
+        <!-- SECTION 1: IDENTITY -->
         <div class="bg-refqaBg/80 p-5 rounded-2xl border border-white/5 space-y-4">
-          <div class="flex items-center justify-between">
-            <h4 class="text-xs font-bold text-roseGold uppercase tracking-wider">1. Egyptian Civil Registry & Gender Audit</h4>
-            <span class="pill-badge pill-sage">LAW NO. 143/1994 COMPLIANT</span>
-          </div>
-
-          <div class="grid grid-cols-1 md:grid-cols-3 gap-4 font-mono">
+          <h4 class="text-xs font-bold text-roseGold uppercase tracking-wider">1. National Identity & Verification</h4>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4 font-mono">
             <div class="p-3 bg-refqaCard rounded-xl border border-white/5">
-              <span class="text-roseGoldLight/40 block text-[10px]">14-DIGIT NATIONAL ID</span>
-              <span class="font-bold text-white text-sm" id="dossierNatId">29804150102844</span>
+              <span class="text-roseGoldLight/40 block text-[10px]">EGYPTIAN NATIONAL ID (14-DIGIT)</span>
+              <span class="font-bold text-white text-sm" id="dossierNatId">---</span>
             </div>
             <div class="p-3 bg-refqaCard rounded-xl border border-white/5">
-              <span class="text-roseGoldLight/40 block text-[10px]">13TH DIGIT GENDER CODE</span>
-              <span class="font-bold text-sageSafe text-sm" id="dossierGenderCheck">EVEN (4) → FEMALE VERIFIED</span>
-            </div>
-            <div class="p-3 bg-refqaCard rounded-xl border border-white/5">
-              <span class="text-roseGoldLight/40 block text-[10px]">3D LIVENESS ANTI-SPOOF</span>
-              <span class="font-bold text-sageSafe text-sm" id="dossierLiveness">98.4% CONFIDENCE (PASS)</span>
+              <span class="text-roseGoldLight/40 block text-[10px]">CIVIL REGISTRY GENDER</span>
+              <span class="font-bold text-roseGold text-sm" id="dossierGender">FEMALE</span>
             </div>
           </div>
-
-          <p class="text-[11px] text-roseGoldLight/70 leading-relaxed bg-sageSafe/10 border border-sageSafe/20 p-3 rounded-xl">
-            <strong class="text-sageSafe">Egyptian Civil Registry Verification Rule:</strong> The 13th digit of the Egyptian 14-digit National ID signifies official gender (Odd = Male, Even = Female). Digit 13 has been verified mathematically as an even number, confirming 100% legal eligibility under Rafik's safety mandate.
-          </p>
         </div>
 
-        <!-- SECTION 2: VEHICLE & LICENSE DOSSIER -->
+        <!-- SECTION 2: VEHICLE -->
         <div class="bg-refqaBg/80 p-5 rounded-2xl border border-white/5 space-y-4">
-          <h4 class="text-xs font-bold text-roseGold uppercase tracking-wider">2. Vehicle Specifications & Traffic Licensing</h4>
-          
-          <div class="grid grid-cols-1 md:grid-cols-4 gap-4 font-mono">
+          <h4 class="text-xs font-bold text-roseGold uppercase tracking-wider">2. Vehicle & License Specifications</h4>
+          <div class="grid grid-cols-2 md:grid-cols-4 gap-4 font-mono">
             <div class="p-3 bg-refqaCard rounded-xl border border-white/5">
               <span class="text-roseGoldLight/40 block text-[10px]">MAKE & MODEL</span>
-              <span class="font-bold text-white" id="dossierVehicleModel">Toyota Yaris (2023)</span>
+              <span class="font-bold text-white" id="dossierVehicleModel">Toyota Yaris</span>
             </div>
             <div class="p-3 bg-refqaCard rounded-xl border border-white/5">
-              <span class="text-roseGoldLight/40 block text-[10px]">EXTERIOR COLOR</span>
-              <span class="font-bold text-white" id="dossierVehicleColor">Rose Gold Metallic</span>
+              <span class="text-roseGoldLight/40 block text-[10px]">COLOR</span>
+              <span class="font-bold text-white" id="dossierVehicleColor">Pearl White</span>
             </div>
             <div class="p-3 bg-refqaCard rounded-xl border border-white/5">
-              <span class="text-roseGoldLight/40 block text-[10px]">DRIVER LICENSE NO.</span>
-              <span class="font-bold text-white" id="dossierLicenseNo">DL-CAI-2023-7429</span>
+              <span class="text-roseGoldLight/40 block text-[10px]">LICENSE NUMBER</span>
+              <span class="font-bold text-white" id="dossierLicenseNo">LIC-123456</span>
             </div>
             <div class="p-3 bg-refqaCard rounded-xl border border-white/5 flex flex-col justify-center">
-              <span class="text-roseGoldLight/40 block text-[10px] mb-1">EGYPTIAN PLATE</span>
+              <span class="text-roseGoldLight/40 block text-[10px] mb-1">PLATE</span>
               <div class="egypt-plate">
                 <div class="egypt-plate-header">EGYPT • مــصـــر</div>
                 <div class="egypt-plate-body">
-                  <span id="dossierPlateAr">س ن ق 1 4 2 9</span>
-                  <span class="text-[10px] text-gray-500 font-normal" id="dossierPlateEn">SNQ 1429</span>
+                  <span id="dossierPlateAr">---</span>
+                  <span class="text-[9px] text-gray-500 font-normal" id="dossierPlateEn">---</span>
                 </div>
               </div>
             </div>
           </div>
         </div>
 
-        <!-- SECTION 3: 6-SIDED DOCUMENT VAULT -->
+        <!-- SECTION 3: 6-SIDED DOCUMENTS (FROM PRIVATE STORAGE) -->
         <div class="bg-refqaBg/80 p-5 rounded-2xl border border-white/5 space-y-4">
           <div class="flex items-center justify-between">
-            <h4 class="text-xs font-bold text-roseGold uppercase tracking-wider">3. Two-Faced (6-Sided) Document Inspection Vault</h4>
-            <span class="pill-badge pill-sage">6 OF 6 SIDES VAULTED</span>
+            <h4 class="text-xs font-bold text-roseGold uppercase tracking-wider">3. Government KYC Documents (Private Bucket)</h4>
+            <span class="pill-badge pill-sage">SIGNED URL ENCRYPTION</span>
           </div>
 
           <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3">
-            <!-- 1. National ID Front -->
             <div class="bg-refqaCard rounded-xl border border-white/5 p-2.5 text-center flex flex-col items-center">
-              <div class="w-full h-20 rounded-lg bg-black/40 overflow-hidden mb-2 border border-white/10 relative group">
-                <img id="docImgNatFront" src="https://images.unsplash.com/photo-1578357078586-491adf1aa5ba?w=300" class="w-full h-full object-cover group-hover:scale-105 transition" />
+              <div class="w-full h-24 rounded-lg bg-black/60 overflow-hidden mb-2 border border-white/10 flex items-center justify-center">
+                <img id="docImgNatFront" class="w-full h-full object-cover" alt="Nat ID Front" />
               </div>
               <span class="text-[10px] font-bold text-white block">NAT. ID FRONT</span>
-              <span class="text-[9px] text-sageSafe font-mono">OCR OK</span>
             </div>
 
-            <!-- 2. National ID Back -->
             <div class="bg-refqaCard rounded-xl border border-white/5 p-2.5 text-center flex flex-col items-center">
-              <div class="w-full h-20 rounded-lg bg-black/40 overflow-hidden mb-2 border border-white/10 relative group">
-                <img id="docImgNatBack" src="https://images.unsplash.com/photo-1578357078586-491adf1aa5ba?w=300" class="w-full h-full object-cover group-hover:scale-105 transition" />
+              <div class="w-full h-24 rounded-lg bg-black/60 overflow-hidden mb-2 border border-white/10 flex items-center justify-center">
+                <img id="docImgNatBack" class="w-full h-full object-cover" alt="Nat ID Back" />
               </div>
               <span class="text-[10px] font-bold text-white block">NAT. ID BACK</span>
-              <span class="text-[9px] text-sageSafe font-mono">BARCODE OK</span>
             </div>
 
-            <!-- 3. License Front -->
             <div class="bg-refqaCard rounded-xl border border-white/5 p-2.5 text-center flex flex-col items-center">
-              <div class="w-full h-20 rounded-lg bg-black/40 overflow-hidden mb-2 border border-white/10 relative group">
-                <img id="docImgLicFront" src="https://images.unsplash.com/photo-1544717305-2782549b5136?w=300" class="w-full h-full object-cover group-hover:scale-105 transition" />
+              <div class="w-full h-24 rounded-lg bg-black/60 overflow-hidden mb-2 border border-white/10 flex items-center justify-center">
+                <img id="docImgLicFront" class="w-full h-full object-cover" alt="License Front" />
               </div>
               <span class="text-[10px] font-bold text-white block">LICENSE FRONT</span>
-              <span class="text-[9px] text-sageSafe font-mono">VALID</span>
             </div>
 
-            <!-- 4. License Back -->
             <div class="bg-refqaCard rounded-xl border border-white/5 p-2.5 text-center flex flex-col items-center">
-              <div class="w-full h-20 rounded-lg bg-black/40 overflow-hidden mb-2 border border-white/10 relative group">
-                <img id="docImgLicBack" src="https://images.unsplash.com/photo-1544717305-2782549b5136?w=300" class="w-full h-full object-cover group-hover:scale-105 transition" />
+              <div class="w-full h-24 rounded-lg bg-black/60 overflow-hidden mb-2 border border-white/10 flex items-center justify-center">
+                <img id="docImgLicBack" class="w-full h-full object-cover" alt="License Back" />
               </div>
               <span class="text-[10px] font-bold text-white block">LICENSE BACK</span>
-              <span class="text-[9px] text-sageSafe font-mono">SEAL AUDIT</span>
             </div>
 
-            <!-- 5. Mulkiya Front -->
             <div class="bg-refqaCard rounded-xl border border-white/5 p-2.5 text-center flex flex-col items-center">
-              <div class="w-full h-20 rounded-lg bg-black/40 overflow-hidden mb-2 border border-white/10 relative group">
-                <img id="docImgMulkFront" src="https://images.unsplash.com/photo-1549317661-bd32c8ce0db2?w=300" class="w-full h-full object-cover group-hover:scale-105 transition" />
+              <div class="w-full h-24 rounded-lg bg-black/60 overflow-hidden mb-2 border border-white/10 flex items-center justify-center">
+                <img id="docImgMulkFront" class="w-full h-full object-cover" alt="Mulkiya Front" />
               </div>
-              <span class="text-[10px] font-bold text-white block">MULKIYA FRONT</span>
-              <span class="text-[9px] text-sageSafe font-mono">TRAFFIC OK</span>
+              <span class="text-[10px] font-bold text-white block">VEHICLE REG. FRONT</span>
             </div>
 
-            <!-- 6. Mulkiya Back -->
             <div class="bg-refqaCard rounded-xl border border-white/5 p-2.5 text-center flex flex-col items-center">
-              <div class="w-full h-20 rounded-lg bg-black/40 overflow-hidden mb-2 border border-white/10 relative group">
-                <img id="docImgMulkBack" src="https://images.unsplash.com/photo-1549317661-bd32c8ce0db2?w=300" class="w-full h-full object-cover group-hover:scale-105 transition" />
+              <div class="w-full h-24 rounded-lg bg-black/60 overflow-hidden mb-2 border border-white/10 flex items-center justify-center">
+                <img id="docImgMulkBack" class="w-full h-full object-cover" alt="Mulkiya Back" />
               </div>
-              <span class="text-[10px] font-bold text-white block">MULKIYA BACK</span>
-              <span class="text-[9px] text-sageSafe font-mono">CHASSIS OK</span>
+              <span class="text-[10px] font-bold text-white block">VEHICLE REG. BACK</span>
             </div>
-          </div>
-        </div>
-
-        <!-- SECTION 4: RATINGS & SAFETY BADGES -->
-        <div class="bg-refqaBg/80 p-5 rounded-2xl border border-white/5 flex flex-col md:flex-row items-center justify-between gap-4">
-          <div>
-            <span class="text-[10px] font-mono text-roseGold uppercase block">Safety Reputation & Trips</span>
-            <div class="flex items-center space-x-3 mt-1">
-              <span class="text-2xl font-extrabold text-white" id="dossierRating">4.96 ★</span>
-              <span class="text-xs text-roseGoldLight/60 font-mono" id="dossierTripsCount">(42 Completed Trips)</span>
-            </div>
-          </div>
-          <div class="flex flex-wrap gap-2">
-            <span class="pill-badge pill-sage">SAFE DRIVING</span>
-            <span class="pill-badge pill-rose">100% RESPECT</span>
-            <span class="pill-badge pill-sage">CLEAN CAR</span>
-            <span class="pill-badge pill-rose">PERFECT ROUTE</span>
           </div>
         </div>
 
       </div>
 
-      <!-- Modal Footer Action Controls -->
-      <div class="p-6 border-t border-white/10 bg-refqaBg/80 flex items-center justify-between">
-        <div class="flex items-center space-x-3">
-          <a id="btnCallDriver" href="tel:+201002847429" class="px-4 py-2 bg-refqaCard border border-refqaBorder hover:border-roseGold text-white rounded-xl text-xs font-semibold flex items-center space-x-1.5 transition">
-            <span>Call Mobile</span>
-          </a>
-          <a id="btnWaDriver" href="https://wa.me/201002847429" target="_blank" class="px-4 py-2 bg-refqaCard border border-refqaBorder hover:border-roseGold text-white rounded-xl text-xs font-semibold flex items-center space-x-1.5 transition">
-            <span>WhatsApp</span>
-          </a>
-        </div>
+      <!-- Modal Footer -->
+      <div class="p-6 border-t border-white/10 bg-refqaBg/80 flex flex-col sm:flex-row items-center justify-between gap-4">
+        <label class="flex items-center space-x-2 text-xs text-roseGold cursor-pointer select-none">
+          <input type="checkbox" id="dossierConfirmFemale" class="rounded bg-black border-white/20 text-roseGold focus:ring-0">
+          <span class="font-bold">I confirm the government ID depicts a female captain (eligible for Rafik Girl)</span>
+        </label>
         <div class="flex items-center space-x-3" id="dossierActionButtons">
           <button onclick="closeDossierModal()" class="px-4 py-2 bg-refqaCard border border-white/10 text-white rounded-xl text-xs font-semibold">
-            Close Dossier
+            Close
           </button>
           <button id="btnRejectCaptain" onclick="actionRejectActiveDriver()" class="px-4 py-2 bg-alertSos/20 hover:bg-alertSos/40 border border-alertSos/50 text-alertSos font-extrabold rounded-xl text-xs transition">
             Reject Application
@@ -555,9 +506,20 @@
     </div>
   </div>
 
-  <!-- JAVASCRIPT: SUPABASE REALTIME & OPERATIONS ENGINE -->
+  <!-- JAVASCRIPT: PURE SUPABASE ARCHITECTURE & OPERATIONS ENGINE -->
   <script>
-    // 1. Live Cairo Clock
+    // Utility: HTML Escaping
+    function escapeHtml(str) {
+      if (str === null || str === undefined) return '';
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    }
+
+    // 1. Clock
     function updateClock() {
       const now = new Date();
       document.getElementById('liveClock').innerText = now.toLocaleTimeString('en-US', { hour12: false }) + ' CAIRO';
@@ -567,16 +529,15 @@
 
     // 2. Tab Navigation
     function switchTab(tab) {
-      ['kyc', 'fleet', 'sos', 'analytics'].forEach(t => {
+      ['kyc', 'identities', 'fleet', 'sos', 'analytics'].forEach(t => {
         const el = document.getElementById('tab-' + t);
         const btn = document.getElementById('tab-btn-' + t);
+        if (!el || !btn) return;
         if (t === tab) {
           el.classList.remove('hidden');
           btn.classList.add('border-roseGold', 'text-roseGold');
           btn.classList.remove('border-transparent', 'text-roseGoldLight/60');
-          if (t === 'fleet') {
-            setTimeout(initMap, 200);
-          }
+          if (t === 'fleet') setTimeout(initMap, 200);
         } else {
           el.classList.add('hidden');
           btn.classList.remove('border-roseGold', 'text-roseGold');
@@ -585,29 +546,126 @@
       });
     }
 
-    // 3. Centralized Real-Time State Stores
+    // 3. Centralized Stores
     const driversMap = new Map();
-    const ridesMap = new Map();
+    const identitiesMap = new Map();
     const sosEvents = [];
     let currentDriverFilter = 'all';
     let inspectingDriverId = null;
 
     // 4. Supabase Client Configuration
-    const SUPABASE_URL = 'https://xertkpwuovmfwwwmdjbe.supabase.co';
-    const SUPABASE_ANON_KEY = 'sb_publishable_4HE2NkOBjDAz5ickKabSbA_RijeYGeJ';
-    const BACKEND_URL = window.location.origin.startsWith('http') ? window.location.origin : 'http://localhost:5000';
+    const SUPABASE_URL = (window.RAFIK_CONFIG && window.RAFIK_CONFIG.SUPABASE_URL) || 'https://xertkpwuovmfwwwmdjbe.supabase.co';
+    const SUPABASE_ANON_KEY = (window.RAFIK_CONFIG && window.RAFIK_CONFIG.SUPABASE_ANON_KEY) || 'sb_publishable_4HE2NkOBjDAz5ickKabSbA_RijeYGeJ';
 
     let supabaseClient = null;
     try {
       if (window.supabase && typeof window.supabase.createClient === 'function') {
         supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-        console.log('✅ Supabase Client initialized in Admin Command Center');
       }
     } catch (e) {
-      console.warn('Supabase initialization notice:', e);
+      console.warn('Supabase initialization error:', e);
     }
 
-    // 5. Leaflet Google Maps Engine
+    // 5. Admin Authentication
+    async function checkAdminAuth() {
+      if (!supabaseClient) return;
+      const { data: { session } } = await supabaseClient.auth.getSession();
+      if (!session) {
+        showLoginModal();
+        return;
+      }
+
+      // Check if user has role = 'admin'
+      const { data: profile, error } = await supabaseClient
+        .from('profiles')
+        .select('role, full_name, email')
+        .eq('id', session.user.id)
+        .maybeSingle();
+
+      if (error || !profile || profile.role !== 'admin') {
+        await supabaseClient.auth.signOut();
+        showLoginModal('Unauthorized: Your account does not have admin permissions.');
+        return;
+      }
+
+      hideLoginModal();
+      document.getElementById('adminUserEmail').innerText = profile.email || session.user.email || 'admin@rafik.app';
+      document.getElementById('adminUserPill').classList.remove('hidden');
+
+      await loadInitialData();
+      subscribeToRealtime();
+    }
+
+    function showLoginModal(errorMsg) {
+      document.getElementById('adminLoginModal').classList.remove('hidden');
+      const errEl = document.getElementById('adminAuthError');
+      if (errorMsg) {
+        errEl.innerText = errorMsg;
+        errEl.classList.remove('hidden');
+      } else {
+        errEl.classList.add('hidden');
+      }
+    }
+
+    function hideLoginModal() {
+      document.getElementById('adminLoginModal').classList.add('hidden');
+    }
+
+    async function handleAdminLogin() {
+      const email = document.getElementById('adminEmailInput').value.trim();
+      const password = document.getElementById('adminPasswordInput').value.trim();
+      const btn = document.getElementById('btnAdminLogin');
+      const errEl = document.getElementById('adminAuthError');
+
+      if (!email || !password) {
+        errEl.innerText = 'Please enter both admin email and password.';
+        errEl.classList.remove('hidden');
+        return;
+      }
+
+      btn.disabled = true;
+      btn.innerText = 'Verifying Credentials...';
+      errEl.classList.add('hidden');
+
+      try {
+        const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
+        if (error) throw error;
+
+        // Verify admin role
+        const { data: profile, error: profErr } = await supabaseClient
+          .from('profiles')
+          .select('role')
+          .eq('id', data.user.id)
+          .maybeSingle();
+
+        if (profErr || !profile || profile.role !== 'admin') {
+          await supabaseClient.auth.signOut();
+          throw new Error('Access Denied: This account is not registered with role "admin".');
+        }
+
+        hideLoginModal();
+        document.getElementById('adminUserEmail').innerText = email;
+        document.getElementById('adminUserPill').classList.remove('hidden');
+
+        await loadInitialData();
+        subscribeToRealtime();
+      } catch (err) {
+        errEl.innerText = err.message || 'Authentication failed.';
+        errEl.classList.remove('hidden');
+      } finally {
+        btn.disabled = false;
+        btn.innerText = 'Authenticate & Enter Command Center';
+      }
+    }
+
+    async function handleAdminLogout() {
+      if (supabaseClient) {
+        await supabaseClient.auth.signOut();
+      }
+      location.reload();
+    }
+
+    // 6. Map Engine (OpenStreetMap Tiles)
     let map = null;
     let mapInitialized = false;
     const driverMarkers = new Map();
@@ -622,224 +680,224 @@
       const cairoCenter = [30.0444, 31.2357];
       map = L.map('map').setView(cairoCenter, 13);
 
-      // Google Maps Standard Road Map (Global CDN)
-      const googleRoads = L.tileLayer('https://mt{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}', {
-        maxZoom: 20,
-        subdomains: ['0', '1', '2', '3'],
-        attribution: '&copy; Google Maps'
+      const osmStandard = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
       });
 
-      // Google Maps Satellite & Hybrid
-      const googleHybrid = L.tileLayer('https://mt{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', {
-        maxZoom: 20,
-        subdomains: ['0', '1', '2', '3'],
-        attribution: '&copy; Google Satellite'
-      });
-
-      // Refqa Obsidian Dark Theme (CARTO CDN)
-      const refqaDark = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-        maxZoom: 20,
+      const osmDark = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+        maxZoom: 19,
         subdomains: 'abcd',
-        attribution: '&copy; CARTO &copy; OpenStreetMap'
+        attribution: '&copy; OpenStreetMap &copy; CARTO'
       });
 
-      googleRoads.addTo(map);
+      osmDark.addTo(map);
 
-      // Top-Right Layer Switcher
-      L.control.layers({
-        "Google Maps (Standard)": googleRoads,
-        "Google Maps (Satellite)": googleHybrid,
-        "Rafik Obsidian Dark Map": refqaDark
-      }, null, { position: 'topright' }).addTo(map);
-
-      // Render any drivers currently online
+      const baseLayers = {
+        "Obsidian Dark": osmDark,
+        "OpenStreetMap Standard": osmStandard
+      };
+      L.control.layers(baseLayers).addTo(map);
       refreshMapMarkers();
-    }
-
-    function updateDriverMapMarker(driver) {
-      if (!map) return;
-      if (!driver.location || !driver.location.lat || !driver.location.lng) return;
-
-      const isOnline = driver.status === 'online' || driver.status === 'in_trip';
-      const existing = driverMarkers.get(driver.id);
-
-      if (!isOnline) {
-        if (existing) {
-          map.removeLayer(existing);
-          driverMarkers.delete(driver.id);
-        }
-        return;
-      }
-
-      const iconColor = driver.status === 'in_trip' ? '#B76E79' : '#6B8E23';
-      const driverIcon = L.divIcon({
-        className: 'custom-driver-pin',
-        html: `<div style="background:${iconColor};width:26px;height:26px;border-radius:50%;border:2px solid white;box-shadow:0 0 12px ${iconColor};display:flex;align-items:center;justify-content:center;color:white;font-size:12px;font-weight:bold;">🚗</div>`,
-        iconSize: [26, 26],
-        iconAnchor: [13, 13]
-      });
-
-      const pos = [driver.location.lat, driver.location.lng];
-      const popupContent = `
-        <div style="font-family:'Plus Jakarta Sans',sans-serif;font-size:12px;color:#12080C;padding:4px;">
-          <strong style="font-size:13px;display:block;">${driver.name}</strong>
-          <span style="color:#666;">${driver.vehicle.make} ${driver.vehicle.model} (${driver.vehicle.plateAr})</span>
-          <div style="margin-top:6px;display:flex;justify-content:space-between;align-items:center;">
-            <span style="background:${driver.status === 'in_trip' ? '#5C1D24' : '#6B8E23'};color:white;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:bold;">
-              ${driver.status.toUpperCase()}
-            </span>
-            <button onclick="openDriverDossier('${driver.id}')" style="background:#B76E79;color:white;border:none;border-radius:4px;padding:2px 8px;font-size:10px;cursor:pointer;font-weight:bold;">
-              Profile
-            </button>
-          </div>
-        </div>
-      `;
-
-      if (existing) {
-        existing.setLatLng(pos);
-        existing.setIcon(driverIcon);
-        existing.getPopup().setContent(popupContent);
-      } else {
-        const marker = L.marker(pos, { icon: driverIcon }).addTo(map).bindPopup(popupContent);
-        driverMarkers.set(driver.id, marker);
-      }
     }
 
     function refreshMapMarkers() {
       if (!map) return;
-      driversMap.forEach(driver => updateDriverMapMarker(driver));
-      updateLiveBadges();
+      driversMap.forEach(d => {
+        if (d.location && d.location.lat && d.location.lng) {
+          updateDriverMapMarker(d);
+        }
+      });
     }
 
-    // 6. UI Rendering: Drivers List (Filtered & Zero Dummy Data)
+    function updateDriverMapMarker(driver) {
+      if (!map || !driver.location) return;
+      const pos = [driver.location.lat, driver.location.lng];
+      const icon = L.divIcon({
+        className: 'custom-driver-icon',
+        html: `<div style="width:16px;height:16px;background:${driver.status === 'online' ? '#6B8E23' : '#B76E79'};border:2px solid #fff;border-radius:50%;"></div>`,
+        iconSize: [16, 16]
+      });
+
+      if (driverMarkers.has(driver.id)) {
+        driverMarkers.get(driver.id).setLatLng(pos);
+      } else {
+        const marker = L.marker(pos, { icon }).addTo(map).bindPopup(`<b>Captain ${escapeHtml(driver.name)}</b><br>${driver.status}`);
+        driverMarkers.set(driver.id, marker);
+      }
+    }
+
+    // 7. Load Data from Supabase under Admin RLS
+    async function loadInitialData() {
+      if (!supabaseClient) return;
+
+      try {
+        // A. Load Drivers with profiles
+        const { data: drivers } = await supabaseClient
+          .from('drivers')
+          .select('*, profiles:user_id(full_name, phone, email, gender, gender_verified, rating_avg)');
+
+        if (drivers) {
+          driversMap.clear();
+          drivers.forEach(d => {
+            const prof = d.profiles || {};
+            driversMap.set(d.user_id, {
+              id: d.user_id,
+              name: prof.full_name || 'Captain',
+              phone: prof.phone || '',
+              email: prof.email || '',
+              status: d.status,
+              is_online: d.is_online,
+              gender: prof.gender || 'female',
+              isUperGirlCertified: prof.gender_verified === true,
+              tier: (prof.gender_verified && prof.gender === 'female') ? 'rafik_girl' : 'standard',
+              nationalId: d.national_id_number,
+              licenseNumber: d.license_number,
+              vehicle: {
+                make: d.vehicle_make,
+                model: d.vehicle_model,
+                year: d.vehicle_year,
+                plateAr: d.vehicle_plate,
+                plateEn: d.vehicle_plate,
+                color: d.vehicle_color
+              },
+              rating: prof.rating_avg || 5.0,
+              tripsCount: d.total_trips || 0
+            });
+          });
+        }
+
+        // B. Load Identity Verifications (Rafik Girl)
+        const { data: idVerifs } = await supabaseClient
+          .from('identity_verifications')
+          .select('*, profiles:user_id(full_name, phone, gender, created_at)');
+
+        if (idVerifs) {
+          identitiesMap.clear();
+          idVerifs.forEach(iv => identitiesMap.set(iv.user_id, iv));
+        }
+
+        // C. Load Active SOS Events
+        const { data: sosList } = await supabaseClient
+          .from('sos_events')
+          .select('*, profiles:user_id(full_name, phone)')
+          .eq('status', 'active');
+
+        if (sosList) {
+          sosEvents.length = 0;
+          sosList.forEach(s => {
+            sosEvents.push({
+              id: s.id,
+              passengerName: s.profiles?.full_name || 'Passenger',
+              passengerPhone: s.profiles?.phone || '',
+              status: s.status,
+              created_at: s.created_at,
+              ride_id: s.ride_id
+            });
+          });
+        }
+
+        // D. Load Analytics from SQL View
+        const { data: metrics } = await supabaseClient
+          .from('admin_metrics_view')
+          .select('*')
+          .maybeSingle();
+
+        if (metrics) {
+          document.getElementById('kpiTotalRides').innerText = metrics.total_completed_trips || 0;
+          document.getElementById('kpiGrossVolume').innerText = parseFloat(metrics.gross_fares_egp || 0).toFixed(2);
+          document.getElementById('kpiActiveCaptains').innerText = metrics.active_captains || 0;
+        }
+
+      } catch (err) {
+        console.error('Initial data load error:', err);
+      }
+
+      renderDriversList();
+      renderIdentitiesList();
+      renderSosTable();
+      updateLiveBadges();
+      appendTelemetryLog('SYSTEM', 'Rafik Command Center initialized under Admin RLS.', '#B76E79');
+    }
+
+    // 8. Realtime Subscriptions
+    function subscribeToRealtime() {
+      if (!supabaseClient) return;
+
+      supabaseClient.channel('admin-realtime-feed')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'drivers' }, () => loadInitialData())
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'identity_verifications' }, () => loadInitialData())
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'rides' }, (payload) => {
+          appendTelemetryLog('RIDE', `Ride update: ${payload.new?.status || 'changed'}`, '#E8B4B8');
+          updateLiveBadges();
+        })
+        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'sos_events' }, (payload) => {
+          if (payload.new && payload.new.status === 'active') {
+            playSosAlarm();
+            alert('🚨 EMERGENCY DISTRESS ALERT reported! Checking SOS Panel.');
+            loadInitialData();
+          }
+        })
+        .subscribe();
+    }
+
+    // 9. Drivers List Rendering
     function renderDriversList() {
       const grid = document.getElementById('applicantGrid');
       const drivers = Array.from(driversMap.values());
 
-      // Update counters
       const totalCount = drivers.length;
-      const uperGirlCount = drivers.filter(d => d.tier === 'uper_girl' || d.isUperGirlCertified === true).length;
-      const standardCount = drivers.filter(d => d.tier !== 'uper_girl' && !d.isUperGirlCertified).length;
-      const onlineCount = drivers.filter(d => d.status === 'online' || d.status === 'in_trip').length;
       const pendingCount = drivers.filter(d => d.status === 'pending').length;
+      const onlineCount = drivers.filter(d => d.is_online).length;
+      const rafikGirlCount = drivers.filter(d => d.tier === 'rafik_girl' || d.isUperGirlCertified).length;
+      const standardCount = drivers.filter(d => d.tier !== 'rafik_girl' && !d.isUperGirlCertified).length;
 
       document.getElementById('count-all').innerText = totalCount;
-      document.getElementById('count-uper_girl').innerText = uperGirlCount;
-      document.getElementById('count-standard').innerText = standardCount;
-      document.getElementById('count-online').innerText = onlineCount;
       document.getElementById('count-pending').innerText = pendingCount;
+      document.getElementById('count-online').innerText = onlineCount;
+      document.getElementById('count-rafik_girl').innerText = rafikGirlCount;
+      document.getElementById('count-standard').innerText = standardCount;
       document.getElementById('kycBadgeCount').innerText = `${totalCount} CAPTAINS`;
 
-      // Filter drivers
       let filtered = drivers;
-      if (currentDriverFilter === 'uper_girl') {
-        filtered = drivers.filter(d => d.tier === 'uper_girl' || d.isUperGirlCertified === true);
-      } else if (currentDriverFilter === 'standard') {
-        filtered = drivers.filter(d => d.tier !== 'uper_girl' && !d.isUperGirlCertified);
-      } else if (currentDriverFilter === 'online') {
-        filtered = drivers.filter(d => d.status === 'online' || d.status === 'in_trip');
-      } else if (currentDriverFilter === 'pending') {
-        filtered = drivers.filter(d => d.status === 'pending');
-      }
+      if (currentDriverFilter === 'pending') filtered = drivers.filter(d => d.status === 'pending');
+      else if (currentDriverFilter === 'online') filtered = drivers.filter(d => d.is_online);
+      else if (currentDriverFilter === 'rafik_girl') filtered = drivers.filter(d => d.tier === 'rafik_girl' || d.isUperGirlCertified);
+      else if (currentDriverFilter === 'standard') filtered = drivers.filter(d => d.tier !== 'rafik_girl' && !d.isUperGirlCertified);
 
       if (filtered.length === 0) {
         grid.innerHTML = `
-          <div class="col-span-full p-12 text-center bg-refqaCard/60 rounded-3xl border border-dashed border-refqaBorder space-y-3">
-            <div class="w-12 h-12 rounded-2xl bg-white/5 flex items-center justify-center mx-auto text-roseGoldLight/60 font-bold text-lg">
-              Ø
-            </div>
+          <div class="col-span-full p-12 text-center bg-refqaCard/60 rounded-3xl border border-dashed border-refqaBorder space-y-2">
             <h4 class="text-sm font-bold text-white uppercase tracking-wider">No Captains in Selected View</h4>
-            <p class="text-xs text-roseGoldLight/50 max-w-md mx-auto">
-              Production Realtime Stream is Active with 0 dummy records. When a captain signs up or goes online in the Rafik Driver application, their full profile, license, and vehicle data stream here instantly.
-            </p>
+            <p class="text-xs text-roseGoldLight/50">Captain applications and real-time statuses will appear here as they are submitted.</p>
           </div>
         `;
         return;
       }
 
       grid.innerHTML = filtered.map(d => {
-        let statusBadgeClass = 'pill-offline';
-        let statusLabel = 'OFFLINE';
-        if (d.status === 'online') {
-          statusBadgeClass = 'pill-sage';
-          statusLabel = 'ONLINE';
-        } else if (d.status === 'in_trip') {
-          statusBadgeClass = 'pill-rose';
-          statusLabel = 'IN TRIP';
-        } else if (d.status === 'pending') {
-          statusBadgeClass = 'pill-rose';
-          statusLabel = 'PENDING APPROVAL';
-        } else if (d.status === 'approved') {
-          statusBadgeClass = 'pill-sage';
-          statusLabel = 'APPROVED';
-        } else if (d.status === 'suspended') {
-          statusBadgeClass = 'pill-alert';
-          statusLabel = 'SUSPENDED';
-        }
-
-        const isGirlFleet = d.tier === 'uper_girl' || d.isUperGirlCertified === true;
-        const initial = d.name ? d.name.replace('Captain ', '').charAt(0) : 'U';
         const isPending = d.status === 'pending';
-        const vehicleStr = d.vehicle ? `${d.vehicle.make} ${d.vehicle.model}` : 'Vehicle';
-        const plateStr = d.vehicle ? d.vehicle.plateAr : 'س ن ق 1 4 2 9';
-        const yearStr = d.vehicle ? `(${d.vehicle.year})` : '';
-
         return `
-          <div class="bg-refqaCard rounded-2xl border border-refqaBorder p-6 hover:border-roseGold/50 transition">
-            <div class="flex items-start justify-between">
-              <div class="flex items-center space-x-3.5">
-                <div class="w-12 h-12 rounded-xl ${isGirlFleet ? 'bg-roseGold/20 border-roseGold/40 text-roseGold' : 'bg-sageSafe/20 border-sageSafe/40 text-sageSafe'} border flex items-center justify-center font-bold text-lg">
-                  ${initial}
-                </div>
-                <div>
-                  <h3 class="font-bold text-white text-base">${d.name}</h3>
-                  <p class="text-xs text-roseGoldLight/60 font-mono">${d.phone} • ${vehicleStr}</p>
-                  <div class="mt-1 flex items-center space-x-2">
-                    <span class="pill-badge ${isGirlFleet ? 'pill-rose' : 'pill-sage'}">
-                      ${isGirlFleet ? '🛡️ RAFIK GIRL FLEET' : '⚡ RAFIK STANDARD FLEET'}
-                    </span>
-                    <span class="pill-badge pill-sage">${d.gender === 'female' ? 'FEMALE VERIFIED' : 'MALE DRIVER'}</span>
-                  </div>
-                </div>
+          <div class="p-6 rounded-2xl bg-refqaCard border border-refqaBorder space-y-4">
+            <div class="flex items-center justify-between">
+              <div>
+                <h3 class="text-base font-bold text-white">${escapeHtml(d.name)}</h3>
+                <p class="text-xs text-roseGoldLight/60 font-mono">${escapeHtml(d.phone)}</p>
               </div>
-              <span class="pill-badge ${statusBadgeClass}">${statusLabel}</span>
+              <span class="pill-badge ${isPending ? 'pill-alert' : (d.is_online ? 'pill-sage' : 'pill-offline')}">${d.status.toUpperCase()}</span>
             </div>
 
-            <div class="mt-5 grid grid-cols-2 gap-3 text-xs bg-refqaBg/70 p-3.5 rounded-xl border border-white/5 font-mono">
-              <div>
-                <span class="text-roseGoldLight/40 block text-[10px]">VEHICLE</span>
-                <span class="font-bold text-white">${vehicleStr} ${yearStr}</span>
-              </div>
-              <div>
-                <span class="text-roseGoldLight/40 block text-[10px]">PLATE NUMBER</span>
-                <span class="font-bold text-white">${plateStr}</span>
-              </div>
-              <div>
-                <span class="text-roseGoldLight/40 block text-[10px]">EGYPTIAN NAT. ID</span>
-                <span class="font-bold text-white">${d.nationalId || 'Verified Onboarding ID'}</span>
-              </div>
-              <div>
-                <span class="text-roseGoldLight/40 block text-[10px]">LIVENESS SELFIE CHECK</span>
-                <span class="font-bold text-sageSafe">PASS (${((d.livenessScore || 0.98) * 100).toFixed(1)}%)</span>
-              </div>
+            <div class="grid grid-cols-2 gap-2 text-xs font-mono bg-refqaBg/70 p-3 rounded-xl border border-white/5">
+              <div><span class="text-roseGoldLight/40 block text-[10px]">VEHICLE</span>${escapeHtml(d.vehicle.make)} ${escapeHtml(d.vehicle.model)} (${d.vehicle.year})</div>
+              <div><span class="text-roseGoldLight/40 block text-[10px]">PLATE</span>${escapeHtml(d.vehicle.plateAr)}</div>
+              <div><span class="text-roseGoldLight/40 block text-[10px]">NATIONAL ID</span>${escapeHtml(d.nationalId)}</div>
+              <div><span class="text-roseGoldLight/40 block text-[10px]">TIER</span>${d.isUperGirlCertified ? '🛡️ Rafik Girl' : '⚡ Standard'}</div>
             </div>
 
-            <div class="mt-4 pt-4 border-t border-white/10 flex items-center justify-between">
-              <span class="text-xs text-roseGoldLight/60 font-mono">6 of 6 documents vaulted</span>
-              <div class="flex space-x-2">
-                <button onclick="openDriverDossier('${d.id}')" class="px-3.5 py-1.5 bg-refqaCard border border-refqaBorder hover:border-roseGold rounded-xl text-xs font-semibold text-roseGoldLight transition">
-                  View Full Profile
-                </button>
-                ${isPending ? `
-                  <button onclick="approveDriverFromCard('${d.id}')" class="px-4 py-1.5 bg-sageSafe hover:bg-sageSafe/90 text-black font-bold rounded-xl text-xs transition">
-                    Approve Captain
-                  </button>
-                ` : `
-                  <button onclick="openDriverDossier('${d.id}')" class="px-4 py-1.5 bg-white/10 hover:bg-white/20 text-white font-bold rounded-xl text-xs transition">
-                    Dossier
-                  </button>
-                `}
-              </div>
+            <div class="flex justify-end space-x-2 pt-2 border-t border-white/5">
+              <button onclick="openDriverDossier('${d.id}')" class="px-4 py-1.5 bg-roseGold/20 hover:bg-roseGold/30 text-roseGold font-bold rounded-xl text-xs transition">
+                Inspect Dossier & Documents
+              </button>
             </div>
           </div>
         `;
@@ -848,78 +906,58 @@
 
     function setDriverFilter(filter) {
       currentDriverFilter = filter;
-      ['all', 'uper_girl', 'standard', 'online', 'pending'].forEach(f => {
+      ['all', 'pending', 'online', 'rafik_girl', 'standard'].forEach(f => {
         const btn = document.getElementById('filter-' + f);
         if (btn) {
-          if (f === filter) {
-            btn.className = 'px-3 py-1 rounded-lg font-semibold bg-roseGold text-black';
-          } else {
-            btn.className = 'px-3 py-1 rounded-lg font-semibold text-roseGoldLight/70 hover:text-white';
-          }
+          if (f === filter) btn.className = 'px-3 py-1 rounded-lg font-semibold bg-roseGold text-black';
+          else btn.className = 'px-3 py-1 rounded-lg font-semibold text-roseGoldLight/70 hover:text-white';
         }
       });
       renderDriversList();
     }
 
-    // 7. Full Driver Profile & Dossier Modal Logic
-    function openDriverDossier(driverId) {
+    // 10. Dossier Modal & Signed Document Previews
+    async function openDriverDossier(driverId) {
+      inspectingDriverId = driverId;
       const driver = driversMap.get(driverId);
       if (!driver) return;
-      inspectingDriverId = driverId;
 
-      document.getElementById('dossierName').innerText = driver.name;
-      document.getElementById('dossierAvatar').innerText = driver.name.replace('Captain ', '').charAt(0);
-      document.getElementById('dossierContact').innerText = `${driver.phone} • ${driver.email}`;
-      
-      // Status Badge
-      const statusEl = document.getElementById('dossierStatusBadge');
-      statusEl.innerText = driver.status.toUpperCase();
-      statusEl.className = 'pill-badge ' + (driver.status === 'online' || driver.status === 'approved' ? 'pill-sage' : (driver.status === 'in_trip' ? 'pill-rose' : 'pill-offline'));
+      document.getElementById('dossierName').innerText = escapeHtml(driver.name);
+      document.getElementById('dossierContact').innerText = `${escapeHtml(driver.phone)} • ${escapeHtml(driver.email)}`;
+      document.getElementById('dossierStatusBadge').innerText = driver.status.toUpperCase();
+      document.getElementById('dossierNatId').innerText = escapeHtml(driver.nationalId || '---');
+      document.getElementById('dossierGender').innerText = driver.gender.toUpperCase();
+      document.getElementById('dossierVehicleModel').innerText = escapeHtml(`${driver.vehicle.make} ${driver.vehicle.model} (${driver.vehicle.year})`);
+      document.getElementById('dossierVehicleColor').innerText = escapeHtml(driver.vehicle.color);
+      document.getElementById('dossierLicenseNo').innerText = escapeHtml(driver.licenseNumber || '---');
+      document.getElementById('dossierPlateAr').innerText = escapeHtml(driver.vehicle.plateAr);
+      document.getElementById('dossierPlateEn').innerText = escapeHtml(driver.vehicle.plateEn);
+      document.getElementById('dossierConfirmFemale').checked = (driver.gender === 'female');
 
-      // Section 1: ID
-      document.getElementById('dossierNatId').innerText = driver.nationalId || 'Verified';
-      const isGirl = driver.tier === 'uper_girl' || driver.isUperGirlCertified === true;
-      document.getElementById('dossierGenderCheck').innerText = isGirl ? 'FEMALE VERIFIED → 🛡️ RAFIK GIRL FLEET' : 'MALE CAPTAIN → ⚡ RAFIK STANDARD FLEET';
-      document.getElementById('dossierLiveness').innerText = `${((driver.livenessScore || 0.98) * 100).toFixed(1)}% CONFIDENCE (PASS)`;
+      // Fetch signed URLs for documents from private storage bucket
+      const docKinds = [
+        ['national_id_front', 'docImgNatFront'],
+        ['national_id_back', 'docImgNatBack'],
+        ['license_front', 'docImgLicFront'],
+        ['license_back', 'docImgLicBack'],
+        ['vehicle_reg_front', 'docImgMulkFront'],
+        ['vehicle_reg_back', 'docImgMulkBack']
+      ];
 
-      // Section 2: Vehicle
-      if (driver.vehicle) {
-        document.getElementById('dossierVehicleModel').innerText = `${driver.vehicle.make} ${driver.vehicle.model} (${driver.vehicle.year})`;
-        document.getElementById('dossierVehicleColor').innerText = driver.vehicle.color || 'Obsidian';
-        document.getElementById('dossierLicenseNo').innerText = driver.licenseNumber || 'DL-CAI-VERIFIED';
-        document.getElementById('dossierPlateAr').innerText = driver.vehicle.plateAr || 'س ن ق 1 4 2 9';
-        document.getElementById('dossierPlateEn').innerText = driver.vehicle.plateEn || 'SNQ 1429';
-      }
+      for (const [kind, elemId] of docKinds) {
+        const imgEl = document.getElementById(elemId);
+        imgEl.src = '';
+        try {
+          const { data } = await supabaseClient.storage
+            .from('driver-documents')
+            .createSignedUrl(`${driverId}/${kind}.jpg`, 120);
 
-      // Section 3: Documents
-      if (driver.documents) {
-        document.getElementById('docImgNatFront').src = driver.documents.nationalIdFront || '';
-        document.getElementById('docImgNatBack').src = driver.documents.nationalIdBack || '';
-        document.getElementById('docImgLicFront').src = driver.documents.licenseFront || '';
-        document.getElementById('docImgLicBack').src = driver.documents.licenseBack || '';
-        document.getElementById('docImgMulkFront').src = driver.documents.mulkiyaFront || '';
-        document.getElementById('docImgMulkBack').src = driver.documents.mulkiyaBack || '';
-      }
-
-      // Section 4: Rating & Trips
-      document.getElementById('dossierRating').innerText = `${driver.rating.toFixed(2)} ★`;
-      document.getElementById('dossierTripsCount').innerText = `(${driver.tripsCount} Completed Trips)`;
-
-      // Quick contact links
-      document.getElementById('btnCallDriver').href = `tel:${driver.phone.replace(/[^0-9+]/g, '')}`;
-      document.getElementById('btnWaDriver').href = `https://wa.me/${driver.phone.replace(/[^0-9]/g, '')}`;
-
-      // Action buttons
-      const btnApprove = document.getElementById('btnApproveCaptain');
-      const btnReject = document.getElementById('btnRejectCaptain');
-      if (driver.status === 'pending') {
-        btnApprove.style.display = 'block';
-        btnReject.style.display = 'block';
-        btnApprove.innerText = 'Approve Captain';
-        btnApprove.className = 'px-5 py-2 bg-sageSafe hover:bg-sageSafe/90 text-black font-extrabold rounded-xl text-xs transition';
-      } else {
-        btnApprove.style.display = 'none';
-        btnReject.style.display = 'none';
+          if (data && data.signedUrl) {
+            imgEl.src = data.signedUrl;
+          }
+        } catch (e) {
+          console.warn(`Signed URL error for ${kind}:`, e);
+        }
       }
 
       document.getElementById('driverProfileModal').classList.remove('hidden');
@@ -930,317 +968,252 @@
       inspectingDriverId = null;
     }
 
+    // 11. RPC Approval / Rejection Actions
     async function actionApproveActiveDriver() {
       if (!inspectingDriverId) return;
-      await approveDriver(inspectingDriverId);
-      closeDossierModal();
+      const confirmFemale = document.getElementById('dossierConfirmFemale').checked;
+
+      try {
+        const { error } = await supabaseClient.rpc('admin_review_driver', {
+          p_driver_id: inspectingDriverId,
+          p_approve: true,
+          p_reason: null,
+          p_confirm_female: confirmFemale
+        });
+
+        if (error) throw error;
+
+        appendTelemetryLog('APPROVAL', `Captain approved via RPC contract.`, '#6B8E23');
+        closeDossierModal();
+        await loadInitialData();
+      } catch (e) {
+        alert('Approval failed: ' + e.message);
+      }
     }
 
     async function actionRejectActiveDriver() {
       if (!inspectingDriverId) return;
-      await rejectDriver(inspectingDriverId);
-      closeDossierModal();
-    }
-
-    async function approveDriverFromCard(driverId) {
-      await approveDriver(driverId);
-    }
-
-    async function rejectDriver(driverId) {
-      const driver = driversMap.get(driverId);
-      if (!driver) return;
-
-      driver.status = 'rejected';
-      driversMap.set(driverId, driver);
-      renderDriversList();
-
-      if (supabaseClient) {
-        supabaseClient.channel('refqa-drivers').send({
-          type: 'broadcast',
-          event: 'driver_status_change',
-          payload: { driverId, status: 'rejected' }
-        }).catch(console.warn);
+      const reason = prompt('Please enter the reason for rejection (required):');
+      if (!reason || !reason.trim()) {
+        alert('Rejection reason is required.');
+        return;
       }
 
-      fetch(`${BACKEND_URL}/api/drivers/${driverId}/status`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: 'rejected' })
-      }).catch(() => {});
+      try {
+        const { error } = await supabaseClient.rpc('admin_review_driver', {
+          p_driver_id: inspectingDriverId,
+          p_approve: false,
+          p_reason: reason.trim(),
+          p_confirm_female: false
+        });
 
-      appendTelemetryLog('REJECTION', `Captain application for ${driver.name} was rejected.`, '#E53935');
+        if (error) throw error;
+
+        appendTelemetryLog('REJECTION', `Captain application rejected: ${reason}`, '#E53935');
+        closeDossierModal();
+        await loadInitialData();
+      } catch (e) {
+        alert('Rejection failed: ' + e.message);
+      }
     }
 
-    async function approveDriver(driverId) {
-      const driver = driversMap.get(driverId);
-      if (!driver) return;
+    // 12. Identity Queue (Rafik Girl Riders)
+    function renderIdentitiesList() {
+      const grid = document.getElementById('identitiesGrid');
+      const list = Array.from(identitiesMap.values());
+      const pending = list.filter(iv => iv.status === 'pending');
+      document.getElementById('identitiesBadgeCount').innerText = `${pending.length} PENDING`;
+      document.getElementById('pendingIdentitiesBadge').innerText = `${pending.length} PENDING`;
 
-      driver.status = 'approved';
-      driversMap.set(driverId, driver);
-      renderDriversList();
-
-      // Broadcast approval event
-      if (supabaseClient) {
-        supabaseClient.channel('refqa-drivers').send({
-          type: 'broadcast',
-          event: 'driver_status_change',
-          payload: { driverId, status: 'approved' }
-        }).catch(console.warn);
+      if (pending.length === 0) {
+        grid.innerHTML = `
+          <div class="col-span-full p-12 text-center bg-refqaCard/60 rounded-3xl border border-dashed border-refqaBorder space-y-2">
+            <h4 class="text-sm font-bold text-white uppercase tracking-wider">No Pending Identity Requests</h4>
+            <p class="text-xs text-roseGoldLight/50">Female riders requesting Rafik Girl verification will appear here.</p>
+          </div>
+        `;
+        return;
       }
 
-      // Call backend API if active
-      fetch(`${BACKEND_URL}/api/drivers/${driverId}/status`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: 'approved' })
-      }).catch(() => {});
+      grid.innerHTML = pending.map(iv => {
+        const prof = iv.profiles || {};
+        return `
+          <div class="p-6 rounded-2xl bg-refqaCard border border-refqaBorder space-y-4">
+            <div class="flex items-center justify-between">
+              <div>
+                <h3 class="text-base font-bold text-white">${escapeHtml(prof.full_name || 'Rider')}</h3>
+                <p class="text-xs text-roseGoldLight/60 font-mono">${escapeHtml(prof.phone || '')}</p>
+              </div>
+              <span class="pill-badge pill-rose">IDENTITY PENDING</span>
+            </div>
+            <div class="grid grid-cols-2 gap-4">
+              <div class="text-center">
+                <span class="text-[10px] text-roseGold block mb-1">ID FRONT</span>
+                <img id="riderId_${iv.user_id}" class="w-full h-32 object-cover rounded-xl border border-white/10" alt="ID Front" />
+              </div>
+              <div class="text-center">
+                <span class="text-[10px] text-roseGold block mb-1">BIOMETRIC SELFIE</span>
+                <img id="riderSelfie_${iv.user_id}" class="w-full h-32 object-cover rounded-xl border border-white/10" alt="Selfie" />
+              </div>
+            </div>
+            <div class="flex justify-end space-x-2 pt-2 border-t border-white/5">
+              <button onclick="actionRejectIdentity('${iv.user_id}')" class="px-4 py-1.5 bg-alertSos/20 text-alertSos font-bold rounded-xl text-xs hover:bg-alertSos/30">
+                Reject
+              </button>
+              <button onclick="actionApproveIdentity('${iv.user_id}')" class="px-4 py-1.5 bg-sageSafe text-black font-bold rounded-xl text-xs hover:bg-sageSafe/90">
+                Approve (Unlock Rafik Girl)
+              </button>
+            </div>
+          </div>
+        `;
+      }).join('');
 
-      appendTelemetryLog('APPROVAL', `Captain ${driver.name} officially approved and authorized for live Cairo dispatch.`, '#6B8E23');
+      // Load signed URLs for identities
+      pending.forEach(async iv => {
+        try {
+          const { data: front } = await supabaseClient.storage.from('identity-documents').createSignedUrl(iv.id_front_path, 120);
+          if (front && front.signedUrl) {
+            const el = document.getElementById(`riderId_${iv.user_id}`);
+            if (el) el.src = front.signedUrl;
+          }
+          const { data: selfie } = await supabaseClient.storage.from('identity-documents').createSignedUrl(iv.selfie_path, 120);
+          if (selfie && selfie.signedUrl) {
+            const el = document.getElementById(`riderSelfie_${iv.user_id}`);
+            if (el) el.src = selfie.signedUrl;
+          }
+        } catch (_) {}
+      });
     }
 
-    // 8. Telemetry Logging
+    async function actionApproveIdentity(userId) {
+      try {
+        const { error } = await supabaseClient.rpc('admin_review_identity', {
+          p_user_id: userId,
+          p_approve: true,
+          p_reason: null
+        });
+        if (error) throw error;
+        appendTelemetryLog('IDENTITY', `Rider verified for Rafik Girl.`, '#6B8E23');
+        await loadInitialData();
+      } catch (e) {
+        alert('Error: ' + e.message);
+      }
+    }
+
+    async function actionRejectIdentity(userId) {
+      const reason = prompt('Please enter reason for rejection (required):');
+      if (!reason || !reason.trim()) return;
+      try {
+        const { error } = await supabaseClient.rpc('admin_review_identity', {
+          p_user_id: userId,
+          p_approve: false,
+          p_reason: reason.trim()
+        });
+        if (error) throw error;
+        appendTelemetryLog('IDENTITY', `Rider verification rejected: ${reason}`, '#E53935');
+        await loadInitialData();
+      } catch (e) {
+        alert('Error: ' + e.message);
+      }
+    }
+
+    // 13. SOS Table & Audible Alarm
+    function renderSosTable() {
+      const tbody = document.getElementById('sosTableBody');
+      document.getElementById('sosCounterPill').innerText = `${sosEvents.length} ACTIVE INCIDENTS`;
+
+      if (sosEvents.length === 0) {
+        tbody.innerHTML = `
+          <tr>
+            <td colspan="5" class="p-8 text-center text-roseGoldLight/40">No active emergency distress events reported. System on high alert.</td>
+          </tr>
+        `;
+        return;
+      }
+
+      tbody.innerHTML = sosEvents.map(s => `
+        <tr class="hover:bg-white/5 transition">
+          <td class="p-4 text-alertSos font-bold">${escapeHtml(s.id.substring(0, 8))}</td>
+          <td class="p-4">${escapeHtml(new Date(s.created_at).toLocaleTimeString())}</td>
+          <td class="p-4 font-bold text-white">${escapeHtml(s.passengerName)} (${escapeHtml(s.passengerPhone)})</td>
+          <td class="p-4"><span class="pill-badge pill-alert">ACTIVE DISTRESS</span></td>
+          <td class="p-4">
+            <button onclick="resolveSos('${s.id}')" class="px-3 py-1 bg-sageSafe text-black font-bold rounded-lg text-xs hover:bg-sageSafe/90">
+              Resolve Incident
+            </button>
+          </td>
+        </tr>
+      `).join('');
+    }
+
+    async function resolveSos(sosId) {
+      const note = prompt('Please enter incident resolution note:');
+      if (!note || !note.trim()) return;
+
+      try {
+        const { error } = await supabaseClient
+          .from('sos_events')
+          .update({
+            status: 'resolved',
+            resolved_at: new Date().toISOString(),
+            note: note.trim()
+          })
+          .eq('id', sosId);
+
+        if (error) throw error;
+        appendTelemetryLog('SOS RESOLVED', `Incident ${sosId.substring(0, 8)} resolved: ${note}`, '#6B8E23');
+        await loadInitialData();
+      } catch (e) {
+        alert('Could not resolve SOS: ' + e.message);
+      }
+    }
+
+    function playSosAlarm() {
+      try {
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(880, audioCtx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(440, audioCtx.currentTime + 0.4);
+        gain.gain.setValueAtTime(0.5, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.4);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start();
+        osc.stop(audioCtx.currentTime + 0.4);
+      } catch (_) {}
+    }
+
+    // 14. Telemetry Logging
     function appendTelemetryLog(tag, message, color) {
       const logContainer = document.getElementById('telemetryLog');
       const timeStr = new Date().toLocaleTimeString('en-US', { hour12: false });
       const item = document.createElement('div');
-      item.className = 'flex items-center justify-between p-2 rounded-lg bg-refqaBg border border-white/5 animate-fade-in';
+      item.className = 'flex items-center justify-between p-2 rounded-lg bg-refqaBg border border-white/5';
       item.innerHTML = `
-        <span style="color:${color || '#E8B4B8'};">[${tag}] ${message}</span>
-        <span class="text-roseGoldLight/40 text-[10px] ml-2 shrink-0">${timeStr}</span>
+        <span style="color:${color || '#E8B4B8'};">[${escapeHtml(tag)}] ${escapeHtml(message)}</span>
+        <span class="text-roseGoldLight/40 text-[10px] ml-2 shrink-0">${escapeHtml(timeStr)}</span>
       `;
       logContainer.insertBefore(item, logContainer.firstChild);
-
-      // Keep max 30 items
       while (logContainer.children.length > 30) {
         logContainer.removeChild(logContainer.lastChild);
       }
     }
 
-    // 9. Live SOS Management
-    function renderSosTable() {
-      const tbody = document.getElementById('sosTableBody');
-      if (sosEvents.length === 0) {
-        tbody.innerHTML = `
-          <tr>
-            <td colspan="6" class="py-6 text-center text-roseGoldLight/50">
-              No distress incidents reported. Fleet operations secure across Cairo.
-            </td>
-          </tr>
-        `;
-        document.getElementById('sosSystemHealth').innerText = 'SYSTEM HEALTH: SECURE';
-        document.getElementById('sosSystemHealth').className = 'pill-badge pill-sage';
-        return;
-      }
-
-      tbody.innerHTML = sosEvents.map(s => {
-        const isDistress = s.status === 'ACTIVE_DISTRESS';
-        return `
-          <tr class="border-b border-white/5 ${isDistress ? 'bg-alertSos/10' : ''}">
-            <td class="py-3 text-roseGoldLight/60">${s.timestamp}</td>
-            <td class="text-white font-bold">${s.passengerName} (${s.passengerPhone})</td>
-            <td class="text-roseGold">${s.locationName} (${s.lat.toFixed(4)}, ${s.lng.toFixed(4)})</td>
-            <td>${s.driverAssigned || 'Assigning nearest captain'}</td>
-            <td><span class="pill-badge ${isDistress ? 'pill-alert sos-flashing' : 'pill-sage'}">${s.status}</span></td>
-            <td class="text-roseGoldLight/70">${s.policeAction}</td>
-          </tr>
-        `;
-      }).join('');
-    }
-
-    function simulateSosTrigger() {
-      const incident = {
-        id: `SOS-${Date.now()}`,
-        timestamp: new Date().toISOString().replace('T', ' ').substring(0, 16),
-        passengerName: 'Mariam Adel',
-        passengerPhone: '+20 109 432 1198',
-        locationName: 'Maadi Degla, Cairo',
-        lat: 29.9592,
-        lng: 31.2825,
-        driverAssigned: 'Captain Yasmine El-Sayed',
-        status: 'ACTIVE_DISTRESS',
-        policeAction: 'Notified Egyptian Emergency Police (122) Dispatch'
-      };
-
-      sosEvents.unshift(incident);
-      renderSosTable();
-      updateLiveBadges();
-      appendTelemetryLog('CRITICAL SOS', `Passenger Mariam Adel triggered emergency SOS at Maadi Degla. Linkage with Police 122 initiated!`, '#E53935');
-
-      // Broadcast over Supabase
-      if (supabaseClient) {
-        supabaseClient.channel('refqa-sos').send({
-          type: 'broadcast',
-          event: 'sos_triggered',
-          payload: incident
-        }).catch(console.warn);
-      }
-    }
-
-    // 10. Live Badges & KPI Calculations
     function updateLiveBadges() {
       const drivers = Array.from(driversMap.values());
-      const onlineDrivers = drivers.filter(d => d.status === 'online' || d.status === 'in_trip').length;
-      const inTripCount = Array.from(ridesMap.values()).filter(r => r.status === 'in_progress').length;
-      const completedRides = Array.from(ridesMap.values()).filter(r => r.status === 'completed');
-
+      const onlineDrivers = drivers.filter(d => d.is_online).length;
       document.getElementById('onlineDriversPill').innerText = `${onlineDrivers} CAPTAINS ONLINE`;
-      document.getElementById('activeRidesPill').innerText = `${inTripCount} RIDES IN PROGRESS`;
-
-      // KPIs
-      document.getElementById('kpiTotalRides').innerText = completedRides.length;
-      const grossFare = completedRides.reduce((acc, r) => acc + (parseFloat(r.fareAmount) || 0), 0);
-      document.getElementById('kpiGrossVolume').innerText = grossFare.toFixed(2);
       document.getElementById('kpiActiveCaptains').innerText = onlineDrivers;
-
-      const rate = completedRides.length === 0 ? 100.0 : Math.max(0, 100 - (sosEvents.length / completedRides.length * 100));
-      document.getElementById('kpiSafetyRate').innerText = `${rate.toFixed(1)}%`;
     }
 
-    // 11. Initial Data Load & Supabase Realtime Channels
-    async function loadInitialData() {
-      // 1. Try fetching from Backend API
-      try {
-        const res = await fetch(`${BACKEND_URL}/api/drivers`);
-        if (res.ok) {
-          const data = await res.json();
-          if (data.drivers && data.drivers.length > 0) {
-            data.drivers.forEach(d => driversMap.set(d.id, d));
-            console.log(`✅ Loaded ${data.drivers.length} drivers from Rafik Server`);
-          }
-        }
-      } catch (e) {
-        console.log('Local backend not reachable on :5000, continuing with Supabase Realtime.');
-      }
-
-      renderDriversList();
-      renderSosTable();
-      updateLiveBadges();
-      appendTelemetryLog('SYSTEM', 'Rafik Safety Command Center initialized. Monitoring Cairo dispatch.', '#B76E79');
-    }
-
-    function subscribeToRealtimeChannels() {
-      if (!supabaseClient) return;
-
-      // 1. TELEMETRY & LOCATION CHANNEL
-      const telemetryChannel = supabaseClient.channel('refqa-telemetry');
-      telemetryChannel.on('broadcast', { event: 'driver_status_update' }, ({ payload }) => {
-        console.log('📡 Driver status update received:', payload);
-        if (payload && payload.id) {
-          const existing = driversMap.get(payload.id) || payload;
-          const merged = { ...existing, ...payload };
-          driversMap.set(payload.id, merged);
-          renderDriversList();
-          updateDriverMapMarker(merged);
-          updateLiveBadges();
-          appendTelemetryLog('STATUS', `Captain ${merged.name} is now ${merged.status.toUpperCase()}`, merged.status === 'online' ? '#6B8E23' : '#B76E79');
-        }
-      });
-
-      telemetryChannel.on('broadcast', { event: 'driver_location_update' }, ({ payload }) => {
-        if (payload && payload.driverId) {
-          const driver = driversMap.get(payload.driverId);
-          if (driver) {
-            driver.location = {
-              lat: payload.lat,
-              lng: payload.lng,
-              heading: payload.heading || 0,
-              lastUpdated: new Date().toISOString()
-            };
-            driver.status = payload.status || driver.status || 'online';
-            driversMap.set(payload.driverId, driver);
-            updateDriverMapMarker(driver);
-            appendTelemetryLog('GPS', `${driver.name} updated coordinates (${payload.lat.toFixed(4)}, ${payload.lng.toFixed(4)})`, '#B76E79');
-          }
-        }
-      });
-      telemetryChannel.subscribe();
-
-      // 2. DISPATCH & RIDE LIFECYCLE CHANNEL
-      const dispatchChannel = supabaseClient.channel('refqa-dispatch');
-      dispatchChannel.on('broadcast', { event: 'ride_requested' }, ({ payload }) => {
-        console.log('🚗 Ride requested received:', payload);
-        if (payload && payload.ride_id) {
-          ridesMap.set(payload.ride_id, {
-            id: payload.ride_id,
-            riderName: payload.rider_name || 'Passenger',
-            pickupAddress: payload.pickup_name || 'Pickup',
-            dropoffAddress: payload.dropoff_name || 'Destination',
-            fareAmount: payload.fare_egp || 199.0,
-            status: 'requested',
-            createdAt: new Date().toISOString()
-          });
-          updateLiveBadges();
-          appendTelemetryLog('DISPATCH', `New ride request: ${payload.pickup_name} → ${payload.dropoff_name} (${payload.fare_egp} LE). PIN: ${payload.pin_code}`, '#E8B4B8');
-        }
-      });
-
-      dispatchChannel.on('broadcast', { event: 'ride_accepted' }, ({ payload }) => {
-        const rideId = payload.ride_id;
-        if (rideId && ridesMap.has(rideId)) {
-          const ride = ridesMap.get(rideId);
-          ride.status = 'accepted';
-          ride.driverName = payload.driver_name;
-          ridesMap.set(rideId, ride);
-        }
-        appendTelemetryLog('DISPATCH', `Captain ${payload.driver_name} accepted ride ${payload.ride_id}`, '#6B8E23');
-        updateLiveBadges();
-      });
-
-      dispatchChannel.on('broadcast', { event: 'trip_started' }, ({ payload }) => {
-        const rideId = payload.ride_id;
-        if (rideId && ridesMap.has(rideId)) {
-          const ride = ridesMap.get(rideId);
-          ride.status = 'in_progress';
-          ridesMap.set(rideId, ride);
-        }
-        appendTelemetryLog('IN TRIP', `Handshake PIN verified for ride ${payload.ride_id}. Trip in progress.`, '#6B8E23');
-        updateLiveBadges();
-      });
-
-      dispatchChannel.on('broadcast', { event: 'trip_completed' }, ({ payload }) => {
-        const rideId = payload.ride_id;
-        if (rideId && ridesMap.has(rideId)) {
-          const ride = ridesMap.get(rideId);
-          ride.status = 'completed';
-          ridesMap.set(rideId, ride);
-        }
-        appendTelemetryLog('COMPLETED', `Ride ${payload.ride_id} completed successfully. Fare settled.`, '#6B8E23');
-        updateLiveBadges();
-      });
-      dispatchChannel.subscribe();
-
-      // 3. DRIVERS ONBOARDING CHANNEL
-      const driversChannel = supabaseClient.channel('refqa-drivers');
-      driversChannel.on('broadcast', { event: 'driver_registered' }, ({ payload }) => {
-        console.log('👥 Driver registered received:', payload);
-        if (payload && payload.id) {
-          driversMap.set(payload.id, payload);
-          renderDriversList();
-          appendTelemetryLog('ONBOARDING', `New captain registration submitted: ${payload.name} (${payload.vehicle?.model})`, '#E8B4B8');
-        }
-      });
-      driversChannel.subscribe();
-
-      // 4. SOS EMERGENCY CHANNEL
-      const sosChannel = supabaseClient.channel('refqa-sos');
-      sosChannel.on('broadcast', { event: 'sos_triggered' }, ({ payload }) => {
-        console.log('🚨 SOS triggered received:', payload);
-        if (payload) {
-          sosEvents.unshift(payload);
-          renderSosTable();
-          updateLiveBadges();
-          appendTelemetryLog('CRITICAL SOS', `EMERGENCY ALERT: ${payload.passengerName} at ${payload.locationName}! Linked to Police 122.`, '#E53935');
-        }
-      });
-      sosChannel.subscribe();
-    }
-
-    // Initialize on page load
+    // Initialize on DOM load
     window.addEventListener('DOMContentLoaded', () => {
-      loadInitialData();
-      subscribeToRealtimeChannels();
+      checkAdminAuth();
     });
   </script>
+
   <footer class="py-6 border-t border-refqaBorder bg-refqaCard/60 text-center text-xs text-roseGoldLight/50">
     <p class="font-semibold text-roseGoldLight/80 tracking-wide">All rights reserved to Rafik 2026 • جميع الحقوق محفوظة لـ رفيق 2026</p>
     <p class="text-[10px] text-white/30 mt-1">Rafik Safety Operations & Dual-Tier Cairo Fleet Monitoring Center</p>
