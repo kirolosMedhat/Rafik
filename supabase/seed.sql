@@ -1,0 +1,17 @@
+-- ==============================================================================
+-- RAFIK (رفيق) — SEED SCRIPT (DEVELOPMENT ONLY)
+-- ==============================================================================
+-- PRODUCTION NOTICE:
+-- By specification, the Rafik production database is EMPTY-BY-DEFAULT.
+-- New registrations stream live into the Admin Verification Queue.
+-- DO NOT execute dummy business data against production.
+-- ==============================================================================
+
+-- Optional helper snippet for local development test accounts:
+-- To promote an existing authenticated user to System Administrator, run:
+--
+-- UPDATE public.profiles
+-- SET role = 'admin'
+-- WHERE email = 'admin@rafik.com';
+--
+-- ==============================================================================
