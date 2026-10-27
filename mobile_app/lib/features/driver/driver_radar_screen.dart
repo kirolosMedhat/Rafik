@@ -7,6 +7,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/services/location_service.dart';
 import '../../core/services/persistent_storage.dart';
 import '../../core/services/supabase_service.dart';
+import '../../core/services/firebase_service.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/pill_badge.dart';
 import '../auth/auth_screen.dart';
@@ -111,6 +112,7 @@ class _DriverRadarScreenState extends State<DriverRadarScreen> {
   void dispose() {
     _countdownTimer?.cancel();
     _locationStreamTimer?.cancel();
+    _firebaseOffersSub?.cancel();
     _pinInputController.dispose();
     _dispatchChannel?.unsubscribe();
     _telemetryChannel?.unsubscribe();
@@ -119,6 +121,7 @@ class _DriverRadarScreenState extends State<DriverRadarScreen> {
 
   void _startLocationStreaming() {
     _locationStreamTimer?.cancel();
+    _firebaseOffersSub?.cancel();
     _locationStreamTimer = Timer.periodic(const Duration(seconds: 5), (timer) async {
       if (!mounted || !_isOnline) {
         timer.cancel();
@@ -137,7 +140,34 @@ class _DriverRadarScreenState extends State<DriverRadarScreen> {
     });
   }
 
+  StreamSubscription? _firebaseOffersSub;
+
   void _subscribeToOffers() {
+    _firebaseOffersSub?.cancel();
+    _firebaseOffersSub = FirebaseService().streamAvailableRides().listen((snapshot) {
+      for (var change in snapshot.docChanges) {
+        final data = change.doc.data();
+        if (data != null && data['status'] == 'requested' && !_tripAccepted) {
+          HapticFeedback.heavyImpact();
+          if (mounted) {
+            setState(() {
+              _incomingRideId = change.doc.id;
+              _incomingTier = data['tier']?.toString() ?? 'standard';
+              _incomingPickupName = data['pickup_address']?.toString() ?? 'Pickup Location';
+              _incomingDropoffName = data['dropoff_address']?.toString() ?? 'Destination';
+              _incomingDistanceKm = (data['distance_km'] as num?)?.toDouble() ?? 5.0;
+              _incomingFareEgp = (data['fare_egp'] as num?)?.toDouble() ?? 65.0;
+              _targetPin = data['pin']?.toString() ?? '7429';
+              _hasIncomingRequest = true;
+              _countdownSeconds = 30;
+            });
+            _startCountdownTimer();
+          }
+          break;
+        }
+      }
+    });
+
     final user = Supabase.instance.client.auth.currentUser;
     if (user == null) return;
 
@@ -194,7 +224,9 @@ class _DriverRadarScreenState extends State<DriverRadarScreen> {
           _hasIncomingRequest = false;
           _countdownTimer?.cancel();
           _locationStreamTimer?.cancel();
+    _firebaseOffersSub?.cancel();
           _dispatchChannel?.unsubscribe();
+          _firebaseOffersSub?.cancel();
         } else {
           _startLocationStreaming();
           _subscribeToOffers();

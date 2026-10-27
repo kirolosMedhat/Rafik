@@ -18,6 +18,9 @@
   <!-- Runtime Config & Pinned Supabase JS Client -->
   <script src="config.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.1/dist/umd/supabase.min.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 
   <script>
     tailwind.config = {
@@ -557,6 +560,43 @@
     const SUPABASE_URL = (window.RAFIK_CONFIG && window.RAFIK_CONFIG.SUPABASE_URL) || 'https://xertkpwuovmfwwwmdjbe.supabase.co';
     const SUPABASE_ANON_KEY = (window.RAFIK_CONFIG && window.RAFIK_CONFIG.SUPABASE_ANON_KEY) || 'sb_publishable_4HE2NkOBjDAz5ickKabSbA_RijeYGeJ';
 
+    let firestoreDb = null;
+    if (window.firebase && window.RAFIK_CONFIG && window.RAFIK_CONFIG.FIREBASE) {
+      try {
+        if (firestoreDb) {
+          firestoreDb.collection('drivers').onSnapshot(snapshot => {
+            snapshot.forEach(doc => {
+              const d = doc.data();
+              driversMap.set(doc.id, {
+                id: doc.id,
+                name: d.full_name || 'Captain',
+                phone: d.phone || '',
+                email: d.email || '',
+                status: d.status || 'pending',
+                tier: d.tier || 'standard',
+                nationalId: d.national_id_number || 'N/A',
+                license: d.license_number || 'N/A',
+                car: (d.vehicle_model || 'Vehicle') + ' (' + (d.vehicle_plate || '') + ')',
+                color: d.vehicle_color || 'White',
+                is_online: d.is_online || false,
+                totalTrips: d.total_trips || 0,
+                rating: d.rating_avg || 5.0,
+                createdAt: d.created_at ? new Date(d.created_at.seconds * 1000).toLocaleString() : 'Recent'
+              });
+            });
+            renderDriversList();
+            refreshMapMarkers();
+            updateLiveBadges();
+          });
+        }
+        if (!firebase.apps.length) {
+          firebase.initializeApp(window.RAFIK_CONFIG.FIREBASE);
+        }
+        firestoreDb = firebase.firestore();
+        console.log('[Admin Portal] Firestore initialized successfully.');
+      } catch (e) { console.warn('Firebase init note:', e); }
+    }
+
     let supabaseClient = null;
     try {
       if (window.supabase && typeof window.supabase.createClient === 'function') {
@@ -628,6 +668,32 @@
       errEl.classList.add('hidden');
 
       try {
+        if (firestoreDb) {
+          firestoreDb.collection('drivers').onSnapshot(snapshot => {
+            snapshot.forEach(doc => {
+              const d = doc.data();
+              driversMap.set(doc.id, {
+                id: doc.id,
+                name: d.full_name || 'Captain',
+                phone: d.phone || '',
+                email: d.email || '',
+                status: d.status || 'pending',
+                tier: d.tier || 'standard',
+                nationalId: d.national_id_number || 'N/A',
+                license: d.license_number || 'N/A',
+                car: (d.vehicle_model || 'Vehicle') + ' (' + (d.vehicle_plate || '') + ')',
+                color: d.vehicle_color || 'White',
+                is_online: d.is_online || false,
+                totalTrips: d.total_trips || 0,
+                rating: d.rating_avg || 5.0,
+                createdAt: d.created_at ? new Date(d.created_at.seconds * 1000).toLocaleString() : 'Recent'
+              });
+            });
+            renderDriversList();
+            refreshMapMarkers();
+            updateLiveBadges();
+          });
+        }
         const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
         if (error) throw error;
 
@@ -732,6 +798,32 @@
       if (!supabaseClient) return;
 
       try {
+        if (firestoreDb) {
+          firestoreDb.collection('drivers').onSnapshot(snapshot => {
+            snapshot.forEach(doc => {
+              const d = doc.data();
+              driversMap.set(doc.id, {
+                id: doc.id,
+                name: d.full_name || 'Captain',
+                phone: d.phone || '',
+                email: d.email || '',
+                status: d.status || 'pending',
+                tier: d.tier || 'standard',
+                nationalId: d.national_id_number || 'N/A',
+                license: d.license_number || 'N/A',
+                car: (d.vehicle_model || 'Vehicle') + ' (' + (d.vehicle_plate || '') + ')',
+                color: d.vehicle_color || 'White',
+                is_online: d.is_online || false,
+                totalTrips: d.total_trips || 0,
+                rating: d.rating_avg || 5.0,
+                createdAt: d.created_at ? new Date(d.created_at.seconds * 1000).toLocaleString() : 'Recent'
+              });
+            });
+            renderDriversList();
+            refreshMapMarkers();
+            updateLiveBadges();
+          });
+        }
         // A. Load Drivers with profiles
         const { data: drivers } = await supabaseClient
           .from('drivers')
@@ -948,6 +1040,32 @@
         const imgEl = document.getElementById(elemId);
         imgEl.src = '';
         try {
+        if (firestoreDb) {
+          firestoreDb.collection('drivers').onSnapshot(snapshot => {
+            snapshot.forEach(doc => {
+              const d = doc.data();
+              driversMap.set(doc.id, {
+                id: doc.id,
+                name: d.full_name || 'Captain',
+                phone: d.phone || '',
+                email: d.email || '',
+                status: d.status || 'pending',
+                tier: d.tier || 'standard',
+                nationalId: d.national_id_number || 'N/A',
+                license: d.license_number || 'N/A',
+                car: (d.vehicle_model || 'Vehicle') + ' (' + (d.vehicle_plate || '') + ')',
+                color: d.vehicle_color || 'White',
+                is_online: d.is_online || false,
+                totalTrips: d.total_trips || 0,
+                rating: d.rating_avg || 5.0,
+                createdAt: d.created_at ? new Date(d.created_at.seconds * 1000).toLocaleString() : 'Recent'
+              });
+            });
+            renderDriversList();
+            refreshMapMarkers();
+            updateLiveBadges();
+          });
+        }
           const { data } = await supabaseClient.storage
             .from('driver-documents')
             .createSignedUrl(`${driverId}/${kind}.jpg`, 120);
@@ -974,6 +1092,32 @@
       const confirmFemale = document.getElementById('dossierConfirmFemale').checked;
 
       try {
+        if (firestoreDb) {
+          firestoreDb.collection('drivers').onSnapshot(snapshot => {
+            snapshot.forEach(doc => {
+              const d = doc.data();
+              driversMap.set(doc.id, {
+                id: doc.id,
+                name: d.full_name || 'Captain',
+                phone: d.phone || '',
+                email: d.email || '',
+                status: d.status || 'pending',
+                tier: d.tier || 'standard',
+                nationalId: d.national_id_number || 'N/A',
+                license: d.license_number || 'N/A',
+                car: (d.vehicle_model || 'Vehicle') + ' (' + (d.vehicle_plate || '') + ')',
+                color: d.vehicle_color || 'White',
+                is_online: d.is_online || false,
+                totalTrips: d.total_trips || 0,
+                rating: d.rating_avg || 5.0,
+                createdAt: d.created_at ? new Date(d.created_at.seconds * 1000).toLocaleString() : 'Recent'
+              });
+            });
+            renderDriversList();
+            refreshMapMarkers();
+            updateLiveBadges();
+          });
+        }
         const { error } = await supabaseClient.rpc('admin_review_driver', {
           p_driver_id: inspectingDriverId,
           p_approve: true,
@@ -1000,6 +1144,32 @@
       }
 
       try {
+        if (firestoreDb) {
+          firestoreDb.collection('drivers').onSnapshot(snapshot => {
+            snapshot.forEach(doc => {
+              const d = doc.data();
+              driversMap.set(doc.id, {
+                id: doc.id,
+                name: d.full_name || 'Captain',
+                phone: d.phone || '',
+                email: d.email || '',
+                status: d.status || 'pending',
+                tier: d.tier || 'standard',
+                nationalId: d.national_id_number || 'N/A',
+                license: d.license_number || 'N/A',
+                car: (d.vehicle_model || 'Vehicle') + ' (' + (d.vehicle_plate || '') + ')',
+                color: d.vehicle_color || 'White',
+                is_online: d.is_online || false,
+                totalTrips: d.total_trips || 0,
+                rating: d.rating_avg || 5.0,
+                createdAt: d.created_at ? new Date(d.created_at.seconds * 1000).toLocaleString() : 'Recent'
+              });
+            });
+            renderDriversList();
+            refreshMapMarkers();
+            updateLiveBadges();
+          });
+        }
         const { error } = await supabaseClient.rpc('admin_review_driver', {
           p_driver_id: inspectingDriverId,
           p_approve: false,
@@ -1071,6 +1241,32 @@
       // Load signed URLs for identities
       pending.forEach(async iv => {
         try {
+        if (firestoreDb) {
+          firestoreDb.collection('drivers').onSnapshot(snapshot => {
+            snapshot.forEach(doc => {
+              const d = doc.data();
+              driversMap.set(doc.id, {
+                id: doc.id,
+                name: d.full_name || 'Captain',
+                phone: d.phone || '',
+                email: d.email || '',
+                status: d.status || 'pending',
+                tier: d.tier || 'standard',
+                nationalId: d.national_id_number || 'N/A',
+                license: d.license_number || 'N/A',
+                car: (d.vehicle_model || 'Vehicle') + ' (' + (d.vehicle_plate || '') + ')',
+                color: d.vehicle_color || 'White',
+                is_online: d.is_online || false,
+                totalTrips: d.total_trips || 0,
+                rating: d.rating_avg || 5.0,
+                createdAt: d.created_at ? new Date(d.created_at.seconds * 1000).toLocaleString() : 'Recent'
+              });
+            });
+            renderDriversList();
+            refreshMapMarkers();
+            updateLiveBadges();
+          });
+        }
           const { data: front } = await supabaseClient.storage.from('identity-documents').createSignedUrl(iv.id_front_path, 120);
           if (front && front.signedUrl) {
             const el = document.getElementById(`riderId_${iv.user_id}`);
@@ -1087,6 +1283,32 @@
 
     async function actionApproveIdentity(userId) {
       try {
+        if (firestoreDb) {
+          firestoreDb.collection('drivers').onSnapshot(snapshot => {
+            snapshot.forEach(doc => {
+              const d = doc.data();
+              driversMap.set(doc.id, {
+                id: doc.id,
+                name: d.full_name || 'Captain',
+                phone: d.phone || '',
+                email: d.email || '',
+                status: d.status || 'pending',
+                tier: d.tier || 'standard',
+                nationalId: d.national_id_number || 'N/A',
+                license: d.license_number || 'N/A',
+                car: (d.vehicle_model || 'Vehicle') + ' (' + (d.vehicle_plate || '') + ')',
+                color: d.vehicle_color || 'White',
+                is_online: d.is_online || false,
+                totalTrips: d.total_trips || 0,
+                rating: d.rating_avg || 5.0,
+                createdAt: d.created_at ? new Date(d.created_at.seconds * 1000).toLocaleString() : 'Recent'
+              });
+            });
+            renderDriversList();
+            refreshMapMarkers();
+            updateLiveBadges();
+          });
+        }
         const { error } = await supabaseClient.rpc('admin_review_identity', {
           p_user_id: userId,
           p_approve: true,
@@ -1104,6 +1326,32 @@
       const reason = prompt('Please enter reason for rejection (required):');
       if (!reason || !reason.trim()) return;
       try {
+        if (firestoreDb) {
+          firestoreDb.collection('drivers').onSnapshot(snapshot => {
+            snapshot.forEach(doc => {
+              const d = doc.data();
+              driversMap.set(doc.id, {
+                id: doc.id,
+                name: d.full_name || 'Captain',
+                phone: d.phone || '',
+                email: d.email || '',
+                status: d.status || 'pending',
+                tier: d.tier || 'standard',
+                nationalId: d.national_id_number || 'N/A',
+                license: d.license_number || 'N/A',
+                car: (d.vehicle_model || 'Vehicle') + ' (' + (d.vehicle_plate || '') + ')',
+                color: d.vehicle_color || 'White',
+                is_online: d.is_online || false,
+                totalTrips: d.total_trips || 0,
+                rating: d.rating_avg || 5.0,
+                createdAt: d.created_at ? new Date(d.created_at.seconds * 1000).toLocaleString() : 'Recent'
+              });
+            });
+            renderDriversList();
+            refreshMapMarkers();
+            updateLiveBadges();
+          });
+        }
         const { error } = await supabaseClient.rpc('admin_review_identity', {
           p_user_id: userId,
           p_approve: false,
@@ -1151,6 +1399,32 @@
       if (!note || !note.trim()) return;
 
       try {
+        if (firestoreDb) {
+          firestoreDb.collection('drivers').onSnapshot(snapshot => {
+            snapshot.forEach(doc => {
+              const d = doc.data();
+              driversMap.set(doc.id, {
+                id: doc.id,
+                name: d.full_name || 'Captain',
+                phone: d.phone || '',
+                email: d.email || '',
+                status: d.status || 'pending',
+                tier: d.tier || 'standard',
+                nationalId: d.national_id_number || 'N/A',
+                license: d.license_number || 'N/A',
+                car: (d.vehicle_model || 'Vehicle') + ' (' + (d.vehicle_plate || '') + ')',
+                color: d.vehicle_color || 'White',
+                is_online: d.is_online || false,
+                totalTrips: d.total_trips || 0,
+                rating: d.rating_avg || 5.0,
+                createdAt: d.created_at ? new Date(d.created_at.seconds * 1000).toLocaleString() : 'Recent'
+              });
+            });
+            renderDriversList();
+            refreshMapMarkers();
+            updateLiveBadges();
+          });
+        }
         const { error } = await supabaseClient
           .from('sos_events')
           .update({
@@ -1170,6 +1444,32 @@
 
     function playSosAlarm() {
       try {
+        if (firestoreDb) {
+          firestoreDb.collection('drivers').onSnapshot(snapshot => {
+            snapshot.forEach(doc => {
+              const d = doc.data();
+              driversMap.set(doc.id, {
+                id: doc.id,
+                name: d.full_name || 'Captain',
+                phone: d.phone || '',
+                email: d.email || '',
+                status: d.status || 'pending',
+                tier: d.tier || 'standard',
+                nationalId: d.national_id_number || 'N/A',
+                license: d.license_number || 'N/A',
+                car: (d.vehicle_model || 'Vehicle') + ' (' + (d.vehicle_plate || '') + ')',
+                color: d.vehicle_color || 'White',
+                is_online: d.is_online || false,
+                totalTrips: d.total_trips || 0,
+                rating: d.rating_avg || 5.0,
+                createdAt: d.created_at ? new Date(d.created_at.seconds * 1000).toLocaleString() : 'Recent'
+              });
+            });
+            renderDriversList();
+            refreshMapMarkers();
+            updateLiveBadges();
+          });
+        }
         const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
         const osc = audioCtx.createOscillator();
         const gain = audioCtx.createGain();

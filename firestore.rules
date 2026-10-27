@@ -1,0 +1,709 @@
+rules_version = '2';
+
+// ===============================================================
+// Assumed Data Model & Architecture: Rafik (رفيق) Ride-Hailing
+// ===============================================================
+//
+// 1. Collection: users
+//    Document ID: {userId} (matches request.auth.uid)
+//    Fields:
+//      - uid: string (1..128, required, immutable) - Firebase Auth UID
+//      - full_name: string (2..100, required) - Passenger display/legal name
+//      - phone: string (6..25, required) - Contact phone number
+//      - username: string (3..50, required) - Unique handle
+//      - email: string (5..100, required, format checked) - Account email
+//      - gender: string (required, 'male'|'female') - Safety & tier validation
+//      - role: string (required, 'rider'|'driver'|'admin') - System authorization role
+//      - gender_verified: bool (optional, immutable for non-admin) - Verification for women-only tier
+//      - rating_avg: number (0.0..5.0, required, immutable for non-admin) - Average user rating
+//      - created_at: timestamp (required, immutable) - Registration timestamp
+//      - updated_at: timestamp (optional) - Modification timestamp
+//
+// 2. Collection: drivers
+//    Document ID: {driverId} (matches request.auth.uid)
+//    Fields:
+//      - uid: string (1..128, required, immutable) - Captain UID
+//      - user_id: string (1..128, required, immutable) - Captain user ID
+//      - full_name: string (2..100, required) - Captain full legal name
+//      - phone: string (6..25, required) - Verified mobile number
+//      - username: string (3..50, optional) - Captain handle
+//      - gender: string (optional, 'male'|'female') - Captain gender
+//      - role: string (optional, 'driver') - Driver role tag
+//      - national_id_number: string (6..30, required) - Egyptian National ID number
+//      - license_number: string (3..30, required) - Driving license identifier
+//      - vehicle_make: string (2..50, required) - Vehicle manufacturer
+//      - vehicle_model: string (2..50, required) - Vehicle model
+//      - vehicle_year: int (1990..2035, required) - Production year
+//      - vehicle_plate: string (2..20, required) - License plate identifier
+//      - vehicle_color: string (2..30, required) - Exterior paint color
+//      - is_online: bool (required) - Live availability broadcast flag
+//      - is_busy: bool (required) - On-trip dispatch lock
+//      - status: string (required, 'pending'|'approved'|'rejected') - Vetting status
+//      - wallet_balance_egp: number (>= 0.0, required, server/admin managed) - Captain wallet balance
+//      - total_trips: int (>= 0, required, server/admin managed) - Completed trips count
+//      - rating_avg: number (0.0..5.0, required) - Average captain star rating
+//      - created_at: timestamp (required, immutable) - Application submission timestamp
+//      - updated_at: timestamp (optional) - Profile modification timestamp
+//
+// 3. Collection: rides
+//    Document ID: {rideId} (auto-generated ID)
+//    Fields:
+//      - rider_id: string (1..128, required, immutable) - Passenger UID
+//      - rider_name: string (2..100, required) - Passenger name at booking
+//      - rider_phone: string (6..25, required) - Passenger phone at booking
+//      - tier: string (2..30, required, immutable) - Service tier ('standard'|'rafik_girl'|'vip')
+//      - status: string (required, 'requested'|'accepted'|'arrived'|'in_progress'|'completed'|'cancelled')
+//      - pickup_address: string (2..200, required, immutable) - Text address of pickup
+//      - pickup_lat: number (-90.0..90.0, required, immutable) - Pickup latitude
+//      - pickup_lng: number (-180.0..180.0, required, immutable) - Pickup longitude
+//      - dropoff_address: string (2..200, required, immutable) - Text address of destination
+//      - dropoff_lat: number (-90.0..90.0, required, immutable) - Dropoff latitude
+//      - dropoff_lng: number (-180.0..180.0, required, immutable) - Dropoff longitude
+//      - distance_km: number (> 0.0..1000.0, required, immutable) - Estimated trip distance
+//      - fare_egp: number (>= 0.0..50000.0, required, immutable) - Trip fare in Egyptian Pounds
+//      - payment_method: string (2..20, required, immutable) - Payment type ('cash'|'wallet'|'card')
+//      - pin: string (4 digits, required, immutable) - 4-digit verification code
+//      - attempts: int (0..10, required) - Failed PIN attempt counter (locked at 3)
+//      - driver_id: string (nullable/optional, 1..128) - Assigned captain UID
+//      - driver_name: string (nullable/optional, 2..100) - Assigned captain name
+//      - driver_phone: string (nullable/optional, 6..25) - Assigned captain phone
+//      - vehicle_plate: string (nullable/optional, 2..20) - Assigned captain vehicle plate
+//      - vehicle_model: string (nullable/optional, 2..50) - Assigned captain vehicle model
+//      - requested_at: timestamp (required, immutable) - Booking creation timestamp
+//      - expires_at: timestamp (optional) - Broadcast expiration timestamp
+//      - accepted_at: timestamp (optional) - Acceptance timestamp
+//      - arrived_at: timestamp (optional) - Arrival timestamp
+//      - started_at: timestamp (optional) - Trip start timestamp
+//      - completed_at: timestamp (optional) - Trip completion timestamp
+//      - cancelled_at: timestamp (optional) - Trip cancellation timestamp
+//      - cancelled_by: string (optional, 2..20) - Who cancelled ('rider'|'driver'|'admin'|'system')
+//      - cancellation_reason: string (optional, 0..250) - Explanation of cancellation
+//
+// 4. Subcollection: rides/{rideId}/messages/{messageId}
+//    Fields:
+//      - sender_id: string (1..128, required) - UID of rider or captain
+//      - sender_name: string (1..100, required) - Sender name
+//      - text: string (1..1000, required) - Chat message content
+//      - created_at: timestamp (required) - Sent timestamp
+//
+// 5. Collection: driver_locations
+//    Document ID: {driverId} (matches request.auth.uid)
+//    Fields:
+//      - driver_id: string (1..128, required, immutable) - Captain UID
+//      - lat: number (-90.0..90.0, required) - Current latitude
+//      - lng: number (-180.0..180.0, required) - Current longitude
+//      - heading: number (0.0..360.0, optional) - Compass heading in degrees
+//      - updated_at: timestamp (required) - Real-time ping timestamp
+//      - active_rider_id: string (nullable/optional, 1..128) - ID of passenger in active trip
+//
+// 6. Collection: sos_events
+//    Document ID: {sosId} (auto-generated ID)
+//    Fields:
+//      - user_id: string (1..128, required, immutable) - Passenger or Captain UID
+//      - ride_id: string (nullable/optional, 1..128) - Active trip ID if applicable
+//      - lat: number (-90.0..90.0, required) - Distress latitude coordinate
+//      - lng: number (-180.0..180.0, required) - Distress longitude coordinate
+//      - status: string (required, 'active'|'investigating'|'resolved'|'dismissed')
+//      - created_at: timestamp (required, immutable) - Trigger timestamp
+//      - resolved_at: timestamp (optional) - Resolution timestamp
+//      - notes: string (optional, 0..500) - Security officer / admin notes
+//
+// 7. Collection: wallet_transactions
+//    Document ID: {txId} (auto-generated ID)
+//    Fields:
+//      - driver_id: string (1..128, required, immutable) - Captain UID
+//      - ride_id: string (1..128, required, immutable) - Associated trip ID
+//      - kind: string (required, 'fare_earned'|'withdrawal'|'bonus'|'penalty'|'adjustment')
+//      - amount_egp: number (> 0.0..50000.0, required, immutable) - Amount credited/debited
+//      - created_at: timestamp (required, immutable) - Transaction timestamp
+//
+// ===============================================================
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ===============================================================
+    // Root Default Deny
+    // ===============================================================
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // ===============================================================
+    // Global Helper Functions
+    // ===============================================================
+
+    // Check if the caller is an authenticated Firebase user
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // Check if caller is the document owner by document ID
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    // Verify system admin privileges using trusted custom claims or verified bootstrap email
+    function isAdmin() {
+      return isAuthenticated() && (
+        (request.auth.token.role == 'admin') ||
+        (request.auth.token.admin == true) ||
+        (
+          request.auth.token.email != null &&
+          request.auth.token.email_verified == true &&
+          request.auth.token.email in ['admin@rafik.app', 'superadmin@rafik.app', 'support@rafik.app']
+        )
+      );
+    }
+
+    // Verify driver authorization from custom claims or an approved driver profile
+    function isDriver() {
+      return isAuthenticated() && (
+        (request.auth.token.role == 'driver') ||
+        (request.auth.token.driver == true) ||
+        (
+          exists(/databases/$(database)/documents/drivers/$(request.auth.uid)) &&
+          get(/databases/$(database)/documents/drivers/$(request.auth.uid)).data.status == 'approved'
+        )
+      );
+    }
+
+    // Validate that required fields exist in request payload
+    function hasRequiredFields(fields) {
+      return request.resource.data.keys().hasAll(fields);
+    }
+
+    // Validate that document contains only the allowed fields (prevents schema pollution)
+    function hasOnlyAllowedFields(fields) {
+      return request.resource.data.keys().hasOnly(fields);
+    }
+
+    // Validate string type and bounded length
+    function validStringLength(field, minLen, maxLen) {
+      return request.resource.data[field] is string &&
+        request.resource.data[field].size() >= minLen &&
+        request.resource.data[field].size() <= maxLen;
+    }
+
+    // Validate optional string type and bounded length if present
+    function isValidOptionalString(field, minLen, maxLen) {
+      return !(field in request.resource.data) ||
+        request.resource.data[field] == null ||
+        (
+          request.resource.data[field] is string &&
+          request.resource.data[field].size() >= minLen &&
+          request.resource.data[field].size() <= maxLen
+        );
+    }
+
+    // Validate standard email format and size
+    function isValidEmail(email) {
+      return email is string &&
+        email.size() >= 5 && email.size() <= 100 &&
+        email.matches('^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$');
+    }
+
+    // Ensure specified fields cannot be modified during an update
+    function areImmutableFieldsUnchanged(fields) {
+      return !request.resource.data.diff(resource.data).affectedKeys().hasAny(fields);
+    }
+
+    // Validate timestamp freshness (within 5 minutes past to 1 minute future clock drift)
+    function isRecent(time) {
+      return time is timestamp &&
+        time > request.time - duration.value(5, 'm') &&
+        time <= request.time + duration.value(1, 'm');
+    }
+
+    // Retrieve ride document data safely
+    function getRide(rideId) {
+      return get(/databases/$(database)/documents/rides/$(rideId)).data;
+    }
+
+    // Check if caller is an active participant (rider or assigned driver) of a ride
+    function isRideParticipant(rideId) {
+      return exists(/databases/$(database)/documents/rides/$(rideId)) && (
+        request.auth.uid == getRide(rideId).rider_id ||
+        request.auth.uid == getRide(rideId).driver_id
+      );
+    }
+
+    // Check if ride is currently active
+    function isRideActive(rideId) {
+      return exists(/databases/$(database)/documents/rides/$(rideId)) &&
+        getRide(rideId).status in ['requested', 'accepted', 'arrived', 'in_progress'];
+    }
+
+    // ===============================================================
+    // Domain Validators (Applied to BOTH create and update)
+    // ===============================================================
+
+    function isValidUser(data) {
+      return hasOnlyAllowedFields([
+        'uid', 'full_name', 'phone', 'username', 'email', 'gender',
+        'role', 'gender_verified', 'rating_avg', 'created_at', 'updated_at'
+      ]) &&
+      hasRequiredFields([
+        'uid', 'full_name', 'phone', 'username', 'email', 'gender',
+        'role', 'rating_avg', 'created_at'
+      ]) &&
+      validStringLength('uid', 1, 128) &&
+      validStringLength('full_name', 2, 100) &&
+      validStringLength('phone', 6, 25) &&
+      validStringLength('username', 3, 50) &&
+      isValidEmail(data.email) &&
+      data.gender in ['male', 'female'] &&
+      data.role in ['rider', 'driver', 'admin'] &&
+      (!('gender_verified' in data) || data.gender_verified is bool) &&
+      data.rating_avg is number && data.rating_avg >= 0.0 && data.rating_avg <= 5.0 &&
+      data.created_at is timestamp &&
+      (!('updated_at' in data) || data.updated_at is timestamp);
+    }
+
+    function isValidDriver(data) {
+      return hasOnlyAllowedFields([
+        'uid', 'user_id', 'full_name', 'phone', 'username', 'gender', 'role',
+        'national_id_number', 'license_number', 'vehicle_make', 'vehicle_model',
+        'vehicle_year', 'vehicle_plate', 'vehicle_color', 'is_online', 'is_busy',
+        'status', 'wallet_balance_egp', 'total_trips', 'rating_avg', 'created_at', 'updated_at'
+      ]) &&
+      hasRequiredFields([
+        'uid', 'user_id', 'full_name', 'phone',
+        'national_id_number', 'license_number', 'vehicle_make', 'vehicle_model',
+        'vehicle_year', 'vehicle_plate', 'vehicle_color', 'is_online', 'is_busy',
+        'status', 'wallet_balance_egp', 'total_trips', 'rating_avg', 'created_at'
+      ]) &&
+      validStringLength('uid', 1, 128) &&
+      validStringLength('user_id', 1, 128) &&
+      validStringLength('full_name', 2, 100) &&
+      validStringLength('phone', 6, 25) &&
+      isValidOptionalString('username', 3, 50) &&
+      (!('gender' in data) || data.gender in ['male', 'female']) &&
+      (!('role' in data) || data.role == 'driver') &&
+      validStringLength('national_id_number', 6, 30) &&
+      validStringLength('license_number', 3, 30) &&
+      validStringLength('vehicle_make', 2, 50) &&
+      validStringLength('vehicle_model', 2, 50) &&
+      data.vehicle_year is int && data.vehicle_year >= 1990 && data.vehicle_year <= 2035 &&
+      validStringLength('vehicle_plate', 2, 20) &&
+      validStringLength('vehicle_color', 2, 30) &&
+      data.is_online is bool &&
+      data.is_busy is bool &&
+      data.status in ['pending', 'approved', 'rejected'] &&
+      data.wallet_balance_egp is number && data.wallet_balance_egp >= 0.0 && data.wallet_balance_egp <= 1000000.0 &&
+      data.total_trips is int && data.total_trips >= 0 && data.total_trips <= 1000000 &&
+      data.rating_avg is number && data.rating_avg >= 0.0 && data.rating_avg <= 5.0 &&
+      data.created_at is timestamp &&
+      (!('updated_at' in data) || data.updated_at is timestamp);
+    }
+
+    function isValidRide(data) {
+      return hasOnlyAllowedFields([
+        'rider_id', 'rider_name', 'rider_phone', 'tier', 'status',
+        'pickup_address', 'pickup_lat', 'pickup_lng',
+        'dropoff_address', 'dropoff_lat', 'dropoff_lng',
+        'distance_km', 'fare_egp', 'payment_method',
+        'pin', 'attempts',
+        'driver_id', 'driver_name', 'driver_phone',
+        'vehicle_plate', 'vehicle_model',
+        'requested_at', 'expires_at', 'accepted_at', 'arrived_at',
+        'started_at', 'completed_at', 'cancelled_at', 'cancelled_by', 'cancellation_reason'
+      ]) &&
+      hasRequiredFields([
+        'rider_id', 'rider_name', 'rider_phone', 'tier', 'status',
+        'pickup_address', 'pickup_lat', 'pickup_lng',
+        'dropoff_address', 'dropoff_lat', 'dropoff_lng',
+        'distance_km', 'fare_egp', 'payment_method',
+        'pin', 'attempts', 'requested_at'
+      ]) &&
+      validStringLength('rider_id', 1, 128) &&
+      validStringLength('rider_name', 2, 100) &&
+      validStringLength('rider_phone', 6, 25) &&
+      validStringLength('tier', 2, 30) &&
+      data.status in ['requested', 'accepted', 'arrived', 'in_progress', 'completed', 'cancelled'] &&
+      validStringLength('pickup_address', 2, 200) &&
+      data.pickup_lat is number && data.pickup_lat >= -90.0 && data.pickup_lat <= 90.0 &&
+      data.pickup_lng is number && data.pickup_lng >= -180.0 && data.pickup_lng <= 180.0 &&
+      validStringLength('dropoff_address', 2, 200) &&
+      data.dropoff_lat is number && data.dropoff_lat >= -90.0 && data.dropoff_lat <= 90.0 &&
+      data.dropoff_lng is number && data.dropoff_lng >= -180.0 && data.dropoff_lng <= 180.0 &&
+      data.distance_km is number && data.distance_km > 0.0 && data.distance_km <= 1000.0 &&
+      data.fare_egp is number && data.fare_egp >= 0.0 && data.fare_egp <= 50000.0 &&
+      validStringLength('payment_method', 2, 20) &&
+      data.pin is string && data.pin.matches('^[0-9]{4}$') &&
+      data.attempts is int && data.attempts >= 0 && data.attempts <= 10 &&
+      (!('driver_id' in data) || data.driver_id == null || (data.driver_id is string && data.driver_id.size() <= 128)) &&
+      (!('driver_name' in data) || data.driver_name == null || (data.driver_name is string && data.driver_name.size() <= 100)) &&
+      (!('driver_phone' in data) || data.driver_phone == null || (data.driver_phone is string && data.driver_phone.size() <= 25)) &&
+      (!('vehicle_plate' in data) || data.vehicle_plate == null || (data.vehicle_plate is string && data.vehicle_plate.size() <= 20)) &&
+      (!('vehicle_model' in data) || data.vehicle_model == null || (data.vehicle_model is string && data.vehicle_model.size() <= 50)) &&
+      data.requested_at is timestamp &&
+      (!('expires_at' in data) || data.expires_at is timestamp) &&
+      (!('accepted_at' in data) || data.accepted_at is timestamp) &&
+      (!('arrived_at' in data) || data.arrived_at is timestamp) &&
+      (!('started_at' in data) || data.started_at is timestamp) &&
+      (!('completed_at' in data) || data.completed_at is timestamp) &&
+      (!('cancelled_at' in data) || data.cancelled_at is timestamp) &&
+      (!('cancelled_by' in data) || (data.cancelled_by is string && data.cancelled_by.size() <= 20)) &&
+      (!('cancellation_reason' in data) || (data.cancellation_reason is string && data.cancellation_reason.size() <= 250));
+    }
+
+    function isValidRideMessage(data) {
+      return hasOnlyAllowedFields(['sender_id', 'sender_name', 'text', 'created_at']) &&
+        hasRequiredFields(['sender_id', 'sender_name', 'text', 'created_at']) &&
+        validStringLength('sender_id', 1, 128) &&
+        validStringLength('sender_name', 1, 100) &&
+        validStringLength('text', 1, 1000) &&
+        data.created_at is timestamp;
+    }
+
+    function isValidDriverLocation(data) {
+      return hasOnlyAllowedFields(['driver_id', 'lat', 'lng', 'heading', 'updated_at', 'active_rider_id']) &&
+        hasRequiredFields(['driver_id', 'lat', 'lng', 'updated_at']) &&
+        validStringLength('driver_id', 1, 128) &&
+        data.lat is number && data.lat >= -90.0 && data.lat <= 90.0 &&
+        data.lng is number && data.lng >= -180.0 && data.lng <= 180.0 &&
+        (!('heading' in data) || (data.heading is number && data.heading >= 0.0 && data.heading <= 360.0)) &&
+        data.updated_at is timestamp &&
+        (!('active_rider_id' in data) || data.active_rider_id == null || (data.active_rider_id is string && data.active_rider_id.size() <= 128));
+    }
+
+    function isValidSosEvent(data) {
+      return hasOnlyAllowedFields(['user_id', 'ride_id', 'lat', 'lng', 'status', 'created_at', 'resolved_at', 'notes']) &&
+        hasRequiredFields(['user_id', 'lat', 'lng', 'status', 'created_at']) &&
+        validStringLength('user_id', 1, 128) &&
+        (!('ride_id' in data) || data.ride_id == null || (data.ride_id is string && data.ride_id.size() <= 128)) &&
+        data.lat is number && data.lat >= -90.0 && data.lat <= 90.0 &&
+        data.lng is number && data.lng >= -180.0 && data.lng <= 180.0 &&
+        data.status in ['active', 'investigating', 'resolved', 'dismissed'] &&
+        data.created_at is timestamp &&
+        (!('resolved_at' in data) || data.resolved_at is timestamp) &&
+        (!('notes' in data) || (data.notes is string && data.notes.size() <= 500));
+    }
+
+    function isValidWalletTransaction(data) {
+      return hasOnlyAllowedFields(['driver_id', 'ride_id', 'kind', 'amount_egp', 'created_at']) &&
+        hasRequiredFields(['driver_id', 'ride_id', 'kind', 'amount_egp', 'created_at']) &&
+        validStringLength('driver_id', 1, 128) &&
+        validStringLength('ride_id', 1, 128) &&
+        data.kind in ['fare_earned', 'withdrawal', 'bonus', 'penalty', 'adjustment'] &&
+        data.amount_egp is number && data.amount_egp > 0.0 && data.amount_egp <= 50000.0 &&
+        data.created_at is timestamp;
+    }
+
+    // Ride state transition predicates:
+    function areRideCoreFieldsUnchanged() {
+      return areImmutableFieldsUnchanged([
+        'rider_id', 'tier', 'requested_at', 'pin',
+        'pickup_address', 'pickup_lat', 'pickup_lng',
+        'dropoff_address', 'dropoff_lat', 'dropoff_lng',
+        'distance_km', 'fare_egp', 'payment_method'
+      ]);
+    }
+
+    function isRiderCancellation() {
+      return request.auth.uid == resource.data.rider_id &&
+        resource.data.status in ['requested', 'accepted', 'arrived'] &&
+        request.resource.data.status == 'cancelled' &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'status', 'cancelled_by', 'cancellation_reason', 'cancelled_at'
+        ]);
+    }
+
+    function isDriverAcceptance() {
+      return isDriver() &&
+        resource.data.status == 'requested' &&
+        resource.data.driver_id == null &&
+        request.resource.data.status == 'accepted' &&
+        request.resource.data.driver_id == request.auth.uid &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'status', 'driver_id', 'driver_name', 'driver_phone',
+          'vehicle_plate', 'vehicle_model', 'accepted_at'
+        ]);
+    }
+
+    function isDriverArrival() {
+      return request.auth.uid == resource.data.driver_id &&
+        resource.data.status == 'accepted' &&
+        request.resource.data.status == 'arrived' &&
+        request.resource.data.driver_id == resource.data.driver_id &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'status', 'arrived_at'
+        ]);
+    }
+
+    function isDriverStartTrip() {
+      return request.auth.uid == resource.data.driver_id &&
+        resource.data.status == 'arrived' &&
+        request.resource.data.status == 'in_progress' &&
+        request.resource.data.driver_id == resource.data.driver_id &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'status', 'started_at'
+        ]);
+    }
+
+    function isDriverFailedPinAttempt() {
+      return request.auth.uid == resource.data.driver_id &&
+        resource.data.status == 'arrived' &&
+        request.resource.data.status == 'arrived' &&
+        resource.data.attempts < 3 &&
+        request.resource.data.attempts == resource.data.attempts + 1 &&
+        request.resource.data.driver_id == resource.data.driver_id &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'attempts'
+        ]);
+    }
+
+    function isDriverCompleteTrip() {
+      return request.auth.uid == resource.data.driver_id &&
+        resource.data.status == 'in_progress' &&
+        request.resource.data.status == 'completed' &&
+        request.resource.data.driver_id == resource.data.driver_id &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'status', 'completed_at'
+        ]);
+    }
+
+    function isDriverCancellation() {
+      return request.auth.uid == resource.data.driver_id &&
+        resource.data.status in ['accepted', 'arrived'] &&
+        request.resource.data.status == 'cancelled' &&
+        request.resource.data.driver_id == resource.data.driver_id &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'status', 'cancelled_by', 'cancellation_reason', 'cancelled_at'
+        ]);
+    }
+
+    // ===============================================================
+    // Collection Rules
+    // ===============================================================
+
+    // 1. Users Collection
+    match /users/{userId} {
+      // Read: Document owner or admin only.
+      // In compliance with the "No Mixed Content" PII rule, counterparties access
+      // denormalized profile fields inside the active ride document instead of full profiles.
+      allow read: if isOwner(userId) || isAdmin();
+
+      // Create: Authenticated user creating their own profile document.
+      // Self-escalation to admin and non-admin gender verification are blocked.
+      allow create: if isOwner(userId) &&
+        isValidUser(request.resource.data) &&
+        request.resource.data.uid == userId &&
+        request.resource.data.uid == request.auth.uid &&
+        (request.resource.data.role in ['rider', 'driver'] || isAdmin()) &&
+        (!('gender_verified' in request.resource.data) || request.resource.data.gender_verified == false || isAdmin()) &&
+        (request.resource.data.rating_avg == 5.0 || request.resource.data.rating_avg == 5 || isAdmin()) &&
+        isRecent(request.resource.data.created_at);
+
+      // Update: User can edit profile details, but immutable & sensitive fields are locked.
+      // Admins have full maintenance permissions.
+      allow update: if (isOwner(userId) || isAdmin()) &&
+        isValidUser(request.resource.data) &&
+        (
+          isAdmin() ||
+          (
+            areImmutableFieldsUnchanged(['uid', 'created_at', 'role', 'gender_verified', 'rating_avg']) &&
+            request.resource.data.uid == resource.data.uid
+          )
+        );
+
+      // Delete: Restricted strictly to system administrators.
+      allow delete: if isAdmin();
+    }
+
+    // 2. Drivers Collection
+    match /drivers/{driverId} {
+      // Read: Anyone authenticated can view approved online captains (for map radar and dispatch).
+      // Captains can view their own profile regardless of status. Admins can view all.
+      allow read: if isAuthenticated() && (
+        (resource.data.status == 'approved' && resource.data.is_online == true) ||
+        isOwner(driverId) ||
+        isAdmin()
+      );
+
+      // Create: Authenticated captain registration.
+      // Status is forced to 'pending'; wallet balance and total trips are initialized to zero.
+      allow create: if isOwner(driverId) &&
+        isValidDriver(request.resource.data) &&
+        request.resource.data.uid == driverId &&
+        request.resource.data.user_id == driverId &&
+        request.resource.data.status == 'pending' &&
+        (request.resource.data.wallet_balance_egp == 0.0 || request.resource.data.wallet_balance_egp == 0) &&
+        request.resource.data.total_trips == 0 &&
+        (request.resource.data.rating_avg == 5.0 || request.resource.data.rating_avg == 5) &&
+        isRecent(request.resource.data.created_at);
+
+      // Update:
+      // Captains can only update their availability flags (is_online, is_busy).
+      // Status, wallet_balance_egp, and total_trips can only be updated by admins or backend service.
+      allow update: if isValidDriver(request.resource.data) && (
+        (
+          isOwner(driverId) &&
+          (
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly(['is_online', 'is_busy']) ||
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly(['is_online', 'is_busy', 'updated_at'])
+          )
+        ) ||
+        (
+          isAdmin() &&
+          areImmutableFieldsUnchanged(['uid', 'user_id', 'created_at'])
+        )
+      );
+
+      // Delete: Restricted strictly to system administrators.
+      allow delete: if isAdmin();
+    }
+
+    // 3. Rides Collection
+    match /rides/{rideId} {
+      // Read:
+      // - Passenger who created the ride
+      // - Assigned captain
+      // - Any approved driver when the ride is in 'requested' state (for real-time dispatch feed)
+      // - Admins
+      allow read: if isAuthenticated() && (
+        resource.data.rider_id == request.auth.uid ||
+        resource.data.driver_id == request.auth.uid ||
+        (resource.data.status == 'requested' && isDriver()) ||
+        isAdmin()
+      );
+
+      // Create: Authenticated passenger submitting a trip request.
+      allow create: if isAuthenticated() &&
+        isValidRide(request.resource.data) &&
+        request.resource.data.rider_id == request.auth.uid &&
+        request.resource.data.status == 'requested' &&
+        (!('driver_id' in request.resource.data) || request.resource.data.driver_id == null) &&
+        request.resource.data.attempts == 0 &&
+        isRecent(request.resource.data.requested_at);
+
+      // Update:
+      // Governed by the ride state machine. Fares, locations, and PIN are locked.
+      allow update: if isValidRide(request.resource.data) && (
+        (
+          areRideCoreFieldsUnchanged() && (
+            isRiderCancellation() ||
+            isDriverAcceptance() ||
+            isDriverArrival() ||
+            isDriverStartTrip() ||
+            isDriverFailedPinAttempt() ||
+            isDriverCompleteTrip() ||
+            isDriverCancellation()
+          )
+        ) ||
+        (
+          isAdmin() &&
+          areImmutableFieldsUnchanged(['rider_id', 'requested_at'])
+        )
+      );
+
+      // Delete: Preserved for audit trail; restricted to admins.
+      allow delete: if isAdmin();
+
+      // 4. In-Ride Chat Messages Subcollection
+      match /messages/{messageId} {
+        // Read: Only participants of the ride or admins
+        allow read: if isAuthenticated() && (
+          isRideParticipant(rideId) ||
+          isAdmin()
+        );
+
+        // Create: Active ride participant sending a message
+        allow create: if isAuthenticated() &&
+          isValidRideMessage(request.resource.data) &&
+          request.resource.data.sender_id == request.auth.uid &&
+          isRideParticipant(rideId) &&
+          isRideActive(rideId) &&
+          isRecent(request.resource.data.created_at);
+
+        // Update and Delete: Immutable communication records
+        allow update, delete: if false;
+      }
+    }
+
+    // 5. Driver Locations Collection
+    match /driver_locations/{driverId} {
+      // Read:
+      // - The captain themselves
+      // - Admins
+      // - Passenger with an active trip with this captain
+      // - Authenticated users viewing approved online captains broadcasting on radar
+      allow read: if isAuthenticated() && (
+        isOwner(driverId) ||
+        isAdmin() ||
+        (('active_rider_id' in resource.data) && resource.data.active_rider_id == request.auth.uid) ||
+        (
+          exists(/databases/$(database)/documents/drivers/$(driverId)) &&
+          get(/databases/$(database)/documents/drivers/$(driverId)).data.status == 'approved' &&
+          get(/databases/$(database)/documents/drivers/$(driverId)).data.is_online == true
+        )
+      );
+
+      // Create & Update: Captain writing their own live GPS coordinates
+      allow create, update: if isOwner(driverId) &&
+        isValidDriverLocation(request.resource.data) &&
+        request.resource.data.driver_id == driverId &&
+        isRecent(request.resource.data.updated_at);
+
+      // Delete: Restricted to admins
+      allow delete: if isAdmin();
+    }
+
+    // 6. SOS Events Collection
+    match /sos_events/{sosId} {
+      // Read: The user who triggered the SOS, or emergency dispatch admins
+      allow read: if isAuthenticated() && (
+        resource.data.user_id == request.auth.uid ||
+        isAdmin()
+      );
+
+      // Create: Any authenticated user triggering an emergency alert
+      allow create: if isAuthenticated() &&
+        isValidSosEvent(request.resource.data) &&
+        request.resource.data.user_id == request.auth.uid &&
+        request.resource.data.status == 'active' &&
+        isRecent(request.resource.data.created_at);
+
+      // Update: Only admins can manage and resolve SOS incidents
+      allow update: if isAdmin() &&
+        isValidSosEvent(request.resource.data) &&
+        areImmutableFieldsUnchanged(['user_id', 'created_at']);
+
+      // Delete: Restricted to admins
+      allow delete: if isAdmin();
+    }
+
+    // 7. Wallet Transactions Collection
+    match /wallet_transactions/{txId} {
+      // Read: Captain reading their own ledger; admins reading all
+      allow read: if isAuthenticated() && (
+        resource.data.driver_id == request.auth.uid ||
+        isAdmin()
+      );
+
+      // Create:
+      // Allowed for admins/backend, OR by a captain during batch ride completion:
+      // The transaction must be 'fare_earned', match the authenticated driver, and
+      // atomically verify that the corresponding ride was completed with matching fare.
+      allow create: if isAuthenticated() &&
+        isValidWalletTransaction(request.resource.data) &&
+        (
+          isAdmin() ||
+          (
+            request.resource.data.driver_id == request.auth.uid &&
+            request.resource.data.kind == 'fare_earned' &&
+            isRecent(request.resource.data.created_at) &&
+            exists(/databases/$(database)/documents/rides/$(request.resource.data.ride_id)) &&
+            getAfter(/databases/$(database)/documents/rides/$(request.resource.data.ride_id)).data.driver_id == request.auth.uid &&
+            getAfter(/databases/$(database)/documents/rides/$(request.resource.data.ride_id)).data.status == 'completed' &&
+            getAfter(/databases/$(database)/documents/rides/$(request.resource.data.ride_id)).data.fare_egp == request.resource.data.amount_egp
+          )
+        );
+
+      // Update & Delete: Financial ledger entries are strictly permanent and immutable
+      allow update, delete: if false;
+    }
+
+  }
+}

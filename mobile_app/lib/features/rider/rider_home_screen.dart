@@ -7,6 +7,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../core/services/persistent_storage.dart';
 import '../../core/services/supabase_service.dart';
+import '../../core/services/firebase_service.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/pill_badge.dart';
 import '../chat/in_ride_chat_sheet.dart';
@@ -198,7 +199,44 @@ class _RiderHomeScreenState extends State<RiderHomeScreen> {
     // Realtime postgres_changes active per ride
   }
 
+  StreamSubscription? _firebaseRideSub;
+  StreamSubscription? _firebaseLocationSub;
+
   void _subscribeToRide(String rideId) {
+    _firebaseRideSub?.cancel();
+    _firebaseRideSub = FirebaseService().streamRide(rideId).listen((snapshot) {
+      if (!snapshot.exists || !mounted) return;
+      final data = snapshot.data();
+      final status = data?['status']?.toString();
+      if (status == null) return;
+
+      if (status == 'accepted' && _rideState != RideState.driverAssigned && _rideState != RideState.inTrip) {
+        HapticFeedback.heavyImpact();
+        final driverId = data?['driver_id']?.toString();
+        _assignedDriverId = driverId;
+        setState(() {
+          _driverName = data?['driver_name']?.toString() ?? 'Rafik Captain';
+          _vehicleInfo = '$(data?['vehicle_model'] ?? 'Sedan') ($(data?['vehicle_plate'] ?? ''))';
+          _securityPin = data?['pin']?.toString() ?? _securityPin;
+          _rideState = RideState.driverAssigned;
+        });
+        if (driverId != null) {
+          _subscribeToDriverLocation(driverId);
+        }
+      } else if (status == 'arrived' && _rideState != RideState.driverArrived) {
+        HapticFeedback.mediumImpact();
+        setState(() => _rideState = RideState.driverArrived);
+      } else if (status == 'in_progress' && _rideState != RideState.inTrip) {
+        HapticFeedback.heavyImpact();
+        setState(() => _rideState = RideState.inTrip);
+      } else if (status == 'completed' && _rideState != RideState.tripCompleted) {
+        HapticFeedback.heavyImpact();
+        setState(() => _rideState = RideState.tripCompleted);
+      } else if (status == 'cancelled' && _rideState != RideState.idle) {
+        setState(() => _rideState = RideState.idle);
+      }
+    });
+
     _dispatchChannel?.unsubscribe();
     final supabase = Supabase.instance.client;
 
@@ -306,6 +344,19 @@ class _RiderHomeScreenState extends State<RiderHomeScreen> {
   }
 
   void _subscribeToDriverLocation(String driverId) {
+    _firebaseLocationSub?.cancel();
+    _firebaseLocationSub = FirebaseService().streamDriverLocation(driverId).listen((snapshot) {
+      if (!snapshot.exists || !mounted) return;
+      final data = snapshot.data();
+      final lat = (data?['lat'] as num?)?.toDouble();
+      final lng = (data?['lng'] as num?)?.toDouble();
+      if (lat != null && lng != null) {
+        setState(() {
+          _driverCurrentLocation = LatLng(lat, lng);
+        });
+      }
+    });
+
     final supabase = Supabase.instance.client;
     supabase.channel('rider-driver-loc-$driverId')
       ..onPostgresChanges(
