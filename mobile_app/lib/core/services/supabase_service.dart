@@ -373,6 +373,71 @@ class SupabaseService {
   }
 
   // ================= 5. EMERGENCY SAFETY & SOS =================
+  Future<List<Map<String, dynamic>>> getEmergencyContacts() async {
+    try {
+      final user = FirebaseService().currentUser;
+      if (user != null) {
+        final snap = await FirebaseService()
+            .firestore
+            .collection('users')
+            .doc(user.uid)
+            .collection('emergency_contacts')
+            .get();
+        return snap.docs.map((d) => d.data()).toList();
+      }
+    } catch (e) {
+      debugPrint('[EmergencyContacts] Firestore note: $e');
+    }
+    return [];
+  }
+
+  Future<void> addEmergencyContact({
+    required String name,
+    required String phone,
+    required String relationship,
+  }) async {
+    try {
+      final user = FirebaseService().currentUser;
+      if (user != null) {
+        await FirebaseService()
+            .firestore
+            .collection('users')
+            .doc(user.uid)
+            .collection('emergency_contacts')
+            .add({
+          'contact_name': name,
+          'contact_phone': phone,
+          'relationship': relationship,
+          'created_at': FieldValue.serverTimestamp(),
+        });
+      }
+    } catch (e) {
+      debugPrint('[AddEmergencyContact] Firestore note: $e');
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> fetchUserTrips() async {
+    try {
+      final user = FirebaseService().currentUser;
+      if (user != null) {
+        final snap = await FirebaseService()
+            .firestore
+            .collection('rides')
+            .where('rider_id', isEqualTo: user.uid)
+            .limit(20)
+            .get();
+        return snap.docs.map((d) {
+          final data = d.data();
+          data['id'] = d.id;
+          return data;
+        }).toList();
+      }
+    } catch (e) {
+      debugPrint('[FetchUserTrips] Firestore note: $e');
+    }
+    return [];
+  }
+
   Future<void> triggerSos({
     String? rideId,
     required double lat,

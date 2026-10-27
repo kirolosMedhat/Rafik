@@ -25,26 +25,13 @@ android {
     }
 
     defaultConfig {
+        applicationId = "com.rafik.rider"
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
         multiDexEnabled = true
         manifestPlaceholders["appName"] = "Rafik"
-    }
-
-    flavorDimensions += "app"
-    productFlavors {
-        create("rider") {
-            dimension = "app"
-            applicationId = "com.rafik.rider"
-            manifestPlaceholders["appName"] = "Rafik"
-        }
-        create("driver") {
-            dimension = "app"
-            applicationId = "com.rafik.driver"
-            manifestPlaceholders["appName"] = "Rafik Captain"
-        }
     }
 
     signingConfigs {
@@ -64,8 +51,8 @@ android {
     buildTypes {
         release {
             signingConfig = signingConfigs.getByName("release")
-            isMinifyEnabled = true
-            isShrinkResources = true
+            isMinifyEnabled = false
+            isShrinkResources = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
