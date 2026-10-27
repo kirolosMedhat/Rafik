@@ -1,3 +1,6 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'dart:async';
+import '../../core/services/firebase_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -39,6 +42,7 @@ class _InRideChatSheetState extends State<InRideChatSheet> {
   final TextEditingController _textController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   RealtimeChannel? _chatChannel;
+  StreamSubscription? _firebaseChatSub;
 
   final List<ChatMessage> _messages = [];
 
@@ -62,6 +66,7 @@ class _InRideChatSheetState extends State<InRideChatSheet> {
     super.initState();
     _initChatChannel();
     _seedInitialMessages();
+    _initFirebaseChat();
   }
 
   void _seedInitialMessages() {
@@ -74,6 +79,33 @@ class _InRideChatSheetState extends State<InRideChatSheet> {
     ));
   }
 
+
+  void _initFirebaseChat() {
+    _firebaseChatSub?.cancel();
+    _firebaseChatSub = FirebaseService().streamRideMessages(widget.rideId).listen((snapshot) {
+      if (!mounted) return;
+      final myUid = FirebaseService().currentUser?.uid;
+      for (var change in snapshot.docChanges) {
+        if (change.type == DocumentChangeType.added) {
+          final data = change.doc.data();
+          if (data != null) {
+            final senderId = data['sender_id']?.toString();
+            if (senderId != myUid) {
+              HapticFeedback.lightImpact();
+              setState(() {
+                _messages.add(ChatMessage(
+                  sender: widget.myRole == 'rider' ? 'driver' : 'rider',
+                  text: data['text']?.toString() ?? '',
+                  time: 'Just now',
+                ));
+              });
+              _scrollToBottom();
+            }
+          }
+        }
+      }
+    });
+  }
   void _initChatChannel() async {
     try {
       final supabase = Supabase.instance.client;
@@ -143,6 +175,7 @@ class _InRideChatSheetState extends State<InRideChatSheet> {
     _textController.dispose();
     _scrollController.dispose();
     _chatChannel?.unsubscribe();
+    _firebaseChatSub?.cancel();
     super.dispose();
   }
 

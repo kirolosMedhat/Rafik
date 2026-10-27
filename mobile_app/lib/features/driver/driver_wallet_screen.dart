@@ -1,3 +1,4 @@
+import '../../core/services/firebase_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../core/services/persistent_storage.dart';
@@ -22,6 +23,19 @@ class _DriverWalletScreenState extends State<DriverWalletScreen> {
   }
 
   Future<void> _loadEarnings() async {
+    try {
+      final prof = await FirebaseService().getCurrentUserProfile();
+      if (prof != null && prof['wallet_balance_egp'] != null) {
+        final bal = (prof['wallet_balance_egp'] as num).toDouble();
+        if (mounted) {
+          setState(() {
+            _todayEarnings = bal;
+            _isLoading = false;
+          });
+          return;
+        }
+      }
+    } catch (_) {}
     final earnings = await PersistentStorage.getDriverEarnings();
     if (mounted) {
       setState(() {

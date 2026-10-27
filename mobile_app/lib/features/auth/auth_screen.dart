@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../core/services/firebase_service.dart';
@@ -265,16 +264,16 @@ class _AuthScreenState extends State<AuthScreen> {
       child: Container(
         padding: const EdgeInsets.all(18),
         decoration: BoxDecoration(
-          color: color.withOpacity(0.08),
+          color: color.withValues(alpha: 0.08),
           borderRadius: BorderRadius.circular(18),
-          border: Border.all(color: color.withOpacity(0.3), width: 1.5),
+          border: Border.all(color: color.withValues(alpha: 0.3), width: 1.5),
         ),
         child: Row(
           children: [
             Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: color.withOpacity(0.2),
+                color: color.withValues(alpha: 0.2),
                 shape: BoxShape.circle,
               ),
               child: Icon(icon, color: color, size: 28),
@@ -444,7 +443,7 @@ class _AuthScreenState extends State<AuthScreen> {
                           height: 38,
                           decoration: BoxDecoration(
                             gradient: LinearGradient(
-                              colors: [_currentAccent, _currentAccent.withOpacity(0.6)],
+                              colors: [_currentAccent, _currentAccent.withValues(alpha: 0.6)],
                             ),
                             shape: BoxShape.circle,
                           ),
@@ -627,7 +626,7 @@ class _AuthScreenState extends State<AuthScreen> {
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
             decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.04),
+              color: Colors.white.withValues(alpha: 0.04),
               borderRadius: BorderRadius.circular(20),
               border: Border.all(color: Colors.white10),
             ),
@@ -642,14 +641,14 @@ class _AuthScreenState extends State<AuthScreen> {
                 ChoiceChip(
                   label: Text(_isArabic ? 'أنثى' : 'Female'),
                   selected: _selectedGender == 'female',
-                  selectedColor: AppTheme.roseGold.withOpacity(0.3),
+                  selectedColor: AppTheme.roseGold.withValues(alpha: 0.3),
                   onSelected: (val) => setState(() => _selectedGender = 'female'),
                 ),
                 const SizedBox(width: 6),
                 ChoiceChip(
                   label: Text(_isArabic ? 'ذكر' : 'Male'),
                   selected: _selectedGender == 'male',
-                  selectedColor: const Color(0xFF3B82F6).withOpacity(0.3),
+                  selectedColor: const Color(0xFF3B82F6).withValues(alpha: 0.3),
                   onSelected: (val) => setState(() => _selectedGender = 'male'),
                 ),
               ],
@@ -747,14 +746,14 @@ class _AuthScreenState extends State<AuthScreen> {
                   ChoiceChip(
                     label: Text(_isArabic ? 'أنثى' : 'Female'),
                     selected: _selectedGender == 'female',
-                    selectedColor: AppTheme.roseGold.withOpacity(0.3),
+                    selectedColor: AppTheme.roseGold.withValues(alpha: 0.3),
                     onSelected: (val) => setState(() => _selectedGender = 'female'),
                   ),
                   const SizedBox(width: 8),
                   ChoiceChip(
                     label: Text(_isArabic ? 'ذكر' : 'Male'),
                     selected: _selectedGender == 'male',
-                    selectedColor: const Color(0xFF3B82F6).withOpacity(0.3),
+                    selectedColor: const Color(0xFF3B82F6).withValues(alpha: 0.3),
                     onSelected: (val) => setState(() => _selectedGender = 'male'),
                   ),
                 ],

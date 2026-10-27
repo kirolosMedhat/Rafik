@@ -216,23 +216,22 @@ class _RiderHomeScreenState extends State<RiderHomeScreen> {
         _assignedDriverId = driverId;
         setState(() {
           _driverName = data?['driver_name']?.toString() ?? 'Rafik Captain';
-          _vehicleInfo = '$(data?['vehicle_model'] ?? 'Sedan') ($(data?['vehicle_plate'] ?? ''))';
+          final carModel = data?['vehicle_model']?.toString() ?? 'Sedan';
+          final carPlate = data?['vehicle_plate']?.toString() ?? '';
+          _vehicleInfo = '$carModel ($carPlate)';
           _securityPin = data?['pin']?.toString() ?? _securityPin;
           _rideState = RideState.driverAssigned;
         });
         if (driverId != null) {
           _subscribeToDriverLocation(driverId);
         }
-      } else if (status == 'arrived' && _rideState != RideState.driverArrived) {
+      } else if (status == 'arrived') {
         HapticFeedback.mediumImpact();
-        setState(() => _rideState = RideState.driverArrived);
+        setState(() => _rideState = RideState.driverAssigned);
       } else if (status == 'in_progress' && _rideState != RideState.inTrip) {
         HapticFeedback.heavyImpact();
         setState(() => _rideState = RideState.inTrip);
-      } else if (status == 'completed' && _rideState != RideState.tripCompleted) {
-        HapticFeedback.heavyImpact();
-        setState(() => _rideState = RideState.tripCompleted);
-      } else if (status == 'cancelled' && _rideState != RideState.idle) {
+      } else if (status == 'completed' || status == 'cancelled') {
         setState(() => _rideState = RideState.idle);
       }
     });
@@ -352,7 +351,7 @@ class _RiderHomeScreenState extends State<RiderHomeScreen> {
       final lng = (data?['lng'] as num?)?.toDouble();
       if (lat != null && lng != null) {
         setState(() {
-          _driverCurrentLocation = LatLng(lat, lng);
+          _driverLiveLocation = LatLng(lat, lng);
         });
       }
     });

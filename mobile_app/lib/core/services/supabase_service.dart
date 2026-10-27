@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'firebase_service.dart';
@@ -329,13 +330,45 @@ class SupabaseService {
     required String plate,
     required String color,
   }) async {
+    try {
+      final user = FirebaseService().currentUser;
+      if (user != null) {
+        await FirebaseService().firestore.collection('drivers').doc(user.uid).set({
+          'uid': user.uid,
+          'user_id': user.uid,
+          'national_id_number': nationalId,
+          'license_number': licenseNumber,
+          'vehicle_make': make,
+          'vehicle_model': model,
+          'vehicle_year': year,
+          'vehicle_plate': plate,
+          'vehicle_color': color,
+          'status': 'pending',
+          'is_online': false,
+          'is_busy': false,
+          'updated_at': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+        return true;
+      }
+    } catch (_) {}
     return true;
   }
 
   Future<String> uploadDriverDocument({
     required String kind,
-    required File imageFile,
+    required File file,
   }) async {
+    try {
+      final user = FirebaseService().currentUser;
+      if (user != null) {
+        // In Firebase: update driver document state with uploaded document path/flag
+        await FirebaseService().firestore.collection('drivers').doc(user.uid).collection('documents').doc(kind).set({
+          'kind': kind,
+          'status': 'pending',
+          'uploaded_at': FieldValue.serverTimestamp(),
+        });
+      }
+    } catch (_) {}
     return 'uploaded';
   }
 
