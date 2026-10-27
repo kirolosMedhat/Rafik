@@ -4,8 +4,7 @@ import 'package:flutter/foundation.dart'
 
 /// Default [FirebaseOptions] for use with your Firebase apps.
 ///
-/// Configure your Firebase project details in this file or pass them
-/// via environment variables / google-services.json.
+/// Pre-configured with your active Firebase project `rafik-98844`.
 class DefaultFirebaseOptions {
   static FirebaseOptions get currentPlatform {
     if (kIsWeb) {
@@ -23,41 +22,16 @@ class DefaultFirebaseOptions {
     }
   }
 
-  // Configurable Firebase Project Credentials
-  // Replace these with your actual Firebase project settings from the Firebase Console
-  static const String projectId = String.fromEnvironment(
-    'FIREBASE_PROJECT_ID',
-    defaultValue: 'rafik-app-2026',
-  );
-
-  static const String apiKey = String.fromEnvironment(
-    'FIREBASE_API_KEY',
-    defaultValue: 'AIzaSyDemoDummyApiKeyForRafikEcosystem2026',
-  );
-
-  static const String appIdAndroid = String.fromEnvironment(
-    'FIREBASE_APP_ID_ANDROID',
-    defaultValue: '1:100000000000:android:abcdef1234567890abcdef',
-  );
-
-  static const String appIdIos = String.fromEnvironment(
-    'FIREBASE_APP_ID_IOS',
-    defaultValue: '1:100000000000:ios:abcdef1234567890abcdef',
-  );
-
-  static const String messagingSenderId = String.fromEnvironment(
-    'FIREBASE_MESSAGING_SENDER_ID',
-    defaultValue: '100000000000',
-  );
-
-  static const String storageBucket = String.fromEnvironment(
-    'FIREBASE_STORAGE_BUCKET',
-    defaultValue: 'rafik-app-2026.appspot.com',
-  );
+  // Active Firebase Credentials for Project: rafik-98844
+  static const String projectId = 'rafik-98844';
+  static const String apiKey = 'AIzaSyDBU-B8IydIt4XhFZehus0kcJQIGffLya0';
+  static const String appIdAndroid = '1:933541427773:android:008c2d2e4c76d9d3fdc854';
+  static const String messagingSenderId = '933541427773';
+  static const String storageBucket = 'rafik-98844.firebasestorage.app';
 
   static const FirebaseOptions web = FirebaseOptions(
     apiKey: apiKey,
-    appId: '1:100000000000:web:abcdef1234567890abcdef',
+    appId: appIdAndroid,
     messagingSenderId: messagingSenderId,
     projectId: projectId,
     storageBucket: storageBucket,
@@ -73,10 +47,10 @@ class DefaultFirebaseOptions {
 
   static const FirebaseOptions ios = FirebaseOptions(
     apiKey: apiKey,
-    appId: appIdIos,
+    appId: appIdAndroid,
     messagingSenderId: messagingSenderId,
     projectId: projectId,
     storageBucket: storageBucket,
-    iosBundleId: 'com.rafik.app',
+    iosBundleId: 'com.rafik.rider',
   );
 }

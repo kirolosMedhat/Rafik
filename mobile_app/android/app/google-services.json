@@ -1,26 +1,21 @@
 {
   "project_info": {
-    "project_number": "100000000000",
-    "project_id": "rafik-app-2026",
-    "storage_bucket": "rafik-app-2026.appspot.com"
+    "project_number": "933541427773",
+    "project_id": "rafik-98844",
+    "storage_bucket": "rafik-98844.firebasestorage.app"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:100000000000:android:abcdef1234567890abcdef",
+        "mobilesdk_app_id": "1:933541427773:android:008c2d2e4c76d9d3fdc854",
         "android_client_info": {
           "package_name": "com.rafik.rider"
         }
       },
-      "oauth_client": [
-        {
-          "client_id": "100000000000-dummy.apps.googleusercontent.com",
-          "client_type": 3
-        }
-      ],
+      "oauth_client": [],
       "api_key": [
         {
-          "current_key": "AIzaSyDemoDummyApiKeyForRafikEcosystem2026"
+          "current_key": "AIzaSyDBU-B8IydIt4XhFZehus0kcJQIGffLya0"
         }
       ],
       "services": {
@@ -31,20 +26,15 @@
     },
     {
       "client_info": {
-        "mobilesdk_app_id": "1:100000000000:android:abcdef1234567890driver",
+        "mobilesdk_app_id": "1:933541427773:android:008c2d2e4c76d9d3fdc854",
         "android_client_info": {
           "package_name": "com.rafik.driver"
         }
       },
-      "oauth_client": [
-        {
-          "client_id": "100000000000-dummy.apps.googleusercontent.com",
-          "client_type": 3
-        }
-      ],
+      "oauth_client": [],
       "api_key": [
         {
-          "current_key": "AIzaSyDemoDummyApiKeyForRafikEcosystem2026"
+          "current_key": "AIzaSyDBU-B8IydIt4XhFZehus0kcJQIGffLya0"
         }
       ],
       "services": {
