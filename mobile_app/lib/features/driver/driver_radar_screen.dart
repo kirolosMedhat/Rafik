@@ -88,22 +88,19 @@ class _DriverRadarScreenState extends State<DriverRadarScreen> {
   }
 
   Future<void> _loadDriverSession() async {
-    final user = Supabase.instance.client.auth.currentUser;
-    if (user != null) {
-      final prof = await SupabaseService().fetchProfile();
-      final drv = await SupabaseService().fetchDriverStatus();
-      if (mounted) {
-        setState(() {
-          _driverName = prof?['full_name'] ?? 'Captain';
-          _driverPhone = prof?['phone'] ?? '';
-          _driverGender = prof?['gender'] ?? 'female';
-          _isUperGirlEnrolled = prof?['gender_verified'] == true;
-          _isOnline = drv?['is_online'] == true;
-        });
-        if (_isOnline) {
-          _startLocationStreaming();
-          _subscribeToOffers();
-        }
+    final prof = await SupabaseService().fetchProfile();
+    final drv = await SupabaseService().fetchDriverStatus();
+    if (mounted) {
+      setState(() {
+        _driverName = prof?['full_name'] ?? 'Captain';
+        _driverPhone = prof?['phone'] ?? '';
+        _driverGender = prof?['gender'] ?? 'female';
+        _isUperGirlEnrolled = prof?['gender_verified'] == true;
+        _isOnline = drv?['is_online'] == true || true; // Default online so incoming requests appear immediately
+      });
+      if (_isOnline) {
+        _startLocationStreaming();
+        _subscribeToOffers();
       }
     }
   }
