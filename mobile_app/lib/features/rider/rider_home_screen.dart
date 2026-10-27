@@ -888,7 +888,7 @@ class _RiderHomeScreenState extends State<RiderHomeScreen> {
                         ),
                         const SizedBox(width: 8),
                         const Text(
-                          'RAFIK',
+                          'GO SAFE',
                           style: TextStyle(
                             color: Color(0xFFFCE4E6),
                             fontWeight: FontWeight.w900,
@@ -1162,8 +1162,8 @@ class _RiderHomeScreenState extends State<RiderHomeScreen> {
               children: [
                 PillBadge(
                   label: _selectedTier == RideTier.rafikGirl
-                      ? 'RAFIK GIRL • 100% FEMALE CAPTAINS'
-                      : 'RAFIK STANDARD • GENERAL FLEET',
+                      ? 'GO SAFE HER • 100% FEMALE CAPTAINS'
+                      : 'GO SAFE STANDARD • GENERAL FLEET',
                   variant: _selectedTier == RideTier.rafikGirl
                       ? PillBadgeVariant.roseGold
                       : PillBadgeVariant.sage,
@@ -1250,7 +1250,7 @@ class _RiderHomeScreenState extends State<RiderHomeScreen> {
                               ),
                               const SizedBox(width: 4),
                               Text(
-                                'RAFIK STANDARD',
+                                'GO SAFE STANDARD',
                                 style: TextStyle(
                                   fontSize: 10.5,
                                   fontWeight: FontWeight.w900,
@@ -1323,7 +1323,7 @@ class _RiderHomeScreenState extends State<RiderHomeScreen> {
                               ),
                               const SizedBox(width: 4),
                               Text(
-                                'RAFIK GIRL',
+                                'GO SAFE HER',
                                 style: TextStyle(
                                   fontSize: 10.5,
                                   fontWeight: FontWeight.w900,
@@ -1476,8 +1476,8 @@ class _RiderHomeScreenState extends State<RiderHomeScreen> {
                 onPressed: _requestRide,
                 child: Text(
                   _selectedTier == RideTier.rafikGirl
-                      ? 'REQUEST RAFIK GIRL (${_calculatedFare.toStringAsFixed(0)} EGP) ➔'
-                      : 'REQUEST RAFIK STANDARD (${_calculatedFare.toStringAsFixed(0)} EGP) ➔',
+                      ? 'REQUEST GO SAFE HER (${_calculatedFare.toStringAsFixed(0)} EGP) ➔'
+                      : 'REQUEST GO SAFE STANDARD (${_calculatedFare.toStringAsFixed(0)} EGP) ➔',
                   style: const TextStyle(fontWeight: FontWeight.w900),
                 ),
               ),
@@ -1485,7 +1485,7 @@ class _RiderHomeScreenState extends State<RiderHomeScreen> {
             const SizedBox(height: 10),
             Center(
               child: Text(
-                'All rights reserved to Rafik 2026 • جميع الحقوق محفوظة لـ رفيق 2026',
+                'All rights reserved to Go Safe 2026 • جميع الحقوق محفوظة لـ جو سيف 2026',
                 style: TextStyle(
                   color: Colors.white.withValues(alpha: 0.3),
                   fontSize: 8.5,

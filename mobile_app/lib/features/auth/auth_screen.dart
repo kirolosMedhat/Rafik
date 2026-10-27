@@ -212,8 +212,8 @@ class _AuthScreenState extends State<AuthScreen> {
                 _buildRoleOptionCard(
                   title: _isArabic ? 'عميل / راكب' : 'Client / Passenger',
                   subtitle: _isArabic
-                      ? 'احجز مشاوير آمنة مع رفيق ستاندرد أو رفيق جيرل'
-                      : 'Book safe rides with Rafik Standard or Rafik Girl',
+                      ? 'احجز مشاوير آمنة مع جو سيف ستاندرد أو جو سيف هير'
+                      : 'Book safe rides with Go Safe Standard or Go Safe Her',
                   icon: Icons.person_rounded,
                   color: const Color(0xFF3B82F6),
                   onTap: () {
@@ -463,7 +463,7 @@ class _AuthScreenState extends State<AuthScreen> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              _isArabic ? 'رَفِيق' : 'RAFIK',
+                              _isArabic ? 'جـو سِـيف' : 'GO SAFE',
                               style: TextStyle(
                                 color: _currentAccent,
                                 fontSize: 18,
@@ -473,8 +473,8 @@ class _AuthScreenState extends State<AuthScreen> {
                             ),
                             Text(
                               _selectedGender == 'female'
-                                  ? (_isArabic ? 'شبكة رفيق جيرل الآمنة' : 'Rafik Girl Network')
-                                  : (_isArabic ? 'منصة النقل الذكي' : 'Smart Cairo Mobility'),
+                                  ? (_isArabic ? 'شبكة جو سيف هير الآمنة' : 'Go Safe Her Network')
+                                  : (_isArabic ? 'منصة التنقل الآمن والذكي' : 'Smart & Verified Mobility'),
                               style: const TextStyle(color: Colors.white54, fontSize: 10),
                             ),
                           ],

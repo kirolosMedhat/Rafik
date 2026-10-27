@@ -13,27 +13,27 @@ void main() async {
   // Initialize Firebase Cloud Engine
   await FirebaseService().initialize();
 
-  runApp(const RafikApp());
+  runApp(const GoSafeApp());
 }
 
-class RafikApp extends StatefulWidget {
-  const RafikApp({super.key});
+class GoSafeApp extends StatefulWidget {
+  const GoSafeApp({super.key});
 
   @override
-  State<RafikApp> createState() => _RafikAppState();
+  State<GoSafeApp> createState() => _GoSafeAppState();
 }
 
-class _RafikAppState extends State<RafikApp> {
+class _GoSafeAppState extends State<GoSafeApp> {
   bool _showSplash = true;
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Rafik - رَفِيق',
+      title: 'Go Safe - جو سيف',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.darkTheme,
       home: _showSplash
-          ? RafikSplashScreen(
+          ? GoSafeSplashScreen(
               onAnimationComplete: () {
                 setState(() => _showSplash = false);
               },

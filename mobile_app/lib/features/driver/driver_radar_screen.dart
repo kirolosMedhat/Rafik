@@ -71,7 +71,7 @@ class _DriverRadarScreenState extends State<DriverRadarScreen> {
         rideId: _incomingRideId.isNotEmpty ? _incomingRideId : 'demo-ride',
         myRole: 'driver',
         otherPartyName: 'Passenger',
-        otherPartySubtitle: _isUperGirlEnrolled ? 'Rafik Girl Passenger' : 'Rafik Passenger',
+        otherPartySubtitle: _isUperGirlEnrolled ? 'Go Safe Her Passenger' : 'Go Safe Passenger',
       ),
     );
   }
@@ -504,7 +504,7 @@ class _DriverRadarScreenState extends State<DriverRadarScreen> {
                         ),
                         const SizedBox(width: 8),
                         Text(
-                          _isUperGirlEnrolled ? 'RAFIK | RAFIK GIRL' : 'RAFIK STANDARD',
+                          _isUperGirlEnrolled ? 'GO SAFE | GO SAFE HER' : 'GO SAFE STANDARD',
                           style: const TextStyle(
                             color: Color(0xFFFCE4E6),
                             fontWeight: FontWeight.w900,
@@ -750,8 +750,8 @@ class _DriverRadarScreenState extends State<DriverRadarScreen> {
 
               PillBadge(
                 label: _incomingTier == 'rafik_girl'
-                    ? 'RAFIK GIRL • 100% FEMALE TRIP'
-                    : 'RAFIK STANDARD • GENERAL TRIP',
+                    ? 'GO SAFE HER • 100% FEMALE TRIP'
+                    : 'GO SAFE STANDARD • GENERAL TRIP',
                 variant: _incomingTier == 'rafik_girl'
                     ? PillBadgeVariant.roseGold
                     : PillBadgeVariant.sage,
@@ -986,7 +986,7 @@ class _DriverRadarScreenState extends State<DriverRadarScreen> {
             const SizedBox(height: 10),
             Center(
               child: Text(
-                'All rights reserved to Rafik 2026 • جميع الحقوق محفوظة لـ رفيق 2026',
+                'All rights reserved to Go Safe 2026 • جميع الحقوق محفوظة لـ جو سيف 2026',
                 style: TextStyle(
                   color: Colors.white.withValues(alpha: 0.3),
                   fontSize: 8.5,

@@ -1,0 +1,73 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 400" width="100%" height="100%">
+  <defs>
+    <linearGradient id="bgGrad2" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1A0D14"/>
+      <stop offset="50%" stop-color="#12080C"/>
+      <stop offset="100%" stop-color="#080305"/>
+    </linearGradient>
+    <linearGradient id="goldText" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF"/>
+      <stop offset="30%" stop-color="#FCE4E6"/>
+      <stop offset="70%" stop-color="#E8B4B8"/>
+      <stop offset="100%" stop-color="#B76E79"/>
+    </linearGradient>
+    <linearGradient id="sageSafe2" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#80ED99"/>
+      <stop offset="100%" stop-color="#38A3A5"/>
+    </linearGradient>
+    <linearGradient id="roseGoldShield" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FCE4E6"/>
+      <stop offset="50%" stop-color="#B76E79"/>
+      <stop offset="100%" stop-color="#8E4A55"/>
+    </linearGradient>
+    <filter id="glow2" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="8" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+    </filter>
+  </defs>
+
+  <rect width="1200" height="400" rx="24" fill="url(#bgGrad2)"/>
+  <rect width="1196" height="396" x="2" y="2" rx="22" fill="none" stroke="#B76E79" stroke-width="1.5" stroke-opacity="0.3"/>
+
+  <!-- Logo Mark (Left) -->
+  <g transform="translate(100, 60) scale(0.55)">
+    <!-- Shield -->
+    <path d="M 256 65
+             C 335 65, 395 105, 410 175
+             C 410 295, 345 375, 256 430
+             C 167 375, 102 295, 102 175
+             C 117 105, 177 65, 256 65 Z"
+          fill="none"
+          stroke="url(#roseGoldShield)"
+          stroke-width="16"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          filter="url(#glow2)"/>
+
+    <!-- Chevron -->
+    <path d="M 195 180 L 290 248 L 195 316"
+          fill="none"
+          stroke="url(#roseGoldShield)"
+          stroke-width="22"
+          stroke-linecap="round"
+          stroke-linejoin="round"/>
+
+    <!-- Safe Beacon -->
+    <circle cx="340" cy="248" r="16" fill="url(#sageSafe2)" filter="url(#glow2)"/>
+  </g>
+
+  <!-- Typography (Right) -->
+  <text x="390" y="195" font-family="'Segoe UI', -apple-system, Roboto, sans-serif" font-size="95" font-weight="900" fill="url(#goldText)" letter-spacing="4">
+    GO SAFE
+  </text>
+  <text x="880" y="190" font-family="'Segoe UI', Tahoma, sans-serif" font-size="65" font-weight="bold" fill="#E8B4B8">
+    جو سيف
+  </text>
+  
+  <text x="395" y="255" font-family="'Segoe UI', -apple-system, Roboto, sans-serif" font-size="22" font-weight="700" fill="#80ED99" letter-spacing="6">
+    VERIFIED • SECURE • REAL-TIME MOBILITY
+  </text>
+  <text x="395" y="295" font-family="'Segoe UI', -apple-system, Roboto, sans-serif" font-size="16" font-weight="500" fill="#B76E79" fill-opacity="0.8">
+    Powered by Firebase Cloud Engine • Handshake PIN Safety • 100% Female &amp; Standard Fleets
+  </text>
+</svg>

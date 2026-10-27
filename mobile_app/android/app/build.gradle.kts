@@ -31,7 +31,7 @@ android {
         versionCode = flutter.versionCode
         versionName = flutter.versionName
         multiDexEnabled = true
-        manifestPlaceholders["appName"] = "Rafik"
+        manifestPlaceholders["appName"] = "Go Safe"
     }
 
     signingConfigs {

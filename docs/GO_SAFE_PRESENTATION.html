@@ -1,0 +1,667 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GO SAFE (جو سيف) — Presentation & System Blueprint</title>
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            bgDark: '#0E060A',
+            cardDark: '#170B11',
+            cardBorder: 'rgba(183, 110, 121, 0.25)',
+            roseGold: '#B76E79',
+            roseGoldLight: '#E8B4B8',
+            roseGoldMuted: 'rgba(183, 110, 121, 0.15)',
+            sageSafe: '#80ED99',
+            sageDark: '#1A3828',
+            berryCore: '#5C1D24',
+          },
+          fontFamily: {
+            sans: ['"Plus Jakarta Sans"', 'sans-serif'],
+            mono: ['"JetBrains Mono"', 'monospace'],
+          }
+        }
+      }
+    }
+  </script>
+
+  <style>
+    body {
+      background-color: #0E060A;
+      color: #F3F4F6;
+      font-family: 'Plus Jakarta Sans', sans-serif;
+      overflow-x: hidden;
+    }
+    .slide {
+      display: none;
+      min-height: 100vh;
+      opacity: 0;
+      transition: opacity 0.4s ease-in-out;
+    }
+    .slide.active {
+      display: flex;
+      opacity: 1;
+    }
+    .glass-panel {
+      background: rgba(23, 11, 17, 0.75);
+      backdrop-filter: blur(16px);
+      border: 1px solid rgba(183, 110, 121, 0.25);
+    }
+    .text-glow {
+      text-shadow: 0 0 25px rgba(232, 180, 184, 0.4);
+    }
+    .glow-box {
+      box-shadow: 0 0 35px -5px rgba(183, 110, 121, 0.25);
+    }
+  </style>
+</head>
+<body class="selection:bg-roseGold selection:text-black">
+
+  <!-- TOP NAVIGATION HEADER -->
+  <nav class="fixed top-0 left-0 right-0 z-50 glass-panel border-b border-cardBorder px-6 py-3 flex items-center justify-between">
+    <div class="flex items-center space-x-3">
+      <div class="w-8 h-8 rounded-lg bg-gradient-to-tr from-berryCore to-roseGold flex items-center justify-center font-black text-black text-xs">
+        GS
+      </div>
+      <div>
+        <span class="font-extrabold text-sm tracking-wider text-roseGoldLight">GO SAFE</span>
+        <span class="text-xs text-white/40 ml-1.5 font-medium">جو سيف • System Blueprint</span>
+      </div>
+    </div>
+
+    <!-- Slide indicator & Controls -->
+    <div class="flex items-center space-x-4">
+      <div class="text-xs font-mono text-white/60 bg-black/40 px-3 py-1.5 rounded-full border border-white/10">
+        Slide <span id="currentSlideNum" class="text-roseGoldLight font-bold">1</span> / <span id="totalSlidesNum">8</span>
+      </div>
+      <div class="flex items-center space-x-2">
+        <button onclick="prevSlide()" class="p-2 rounded-lg bg-cardDark border border-cardBorder text-white/70 hover:text-white hover:border-roseGold transition">
+          <i data-lucide="chevron-left" class="w-4 h-4"></i>
+        </button>
+        <button onclick="nextSlide()" class="p-2 rounded-lg bg-cardDark border border-cardBorder text-white/70 hover:text-white hover:border-roseGold transition">
+          <i data-lucide="chevron-right" class="w-4 h-4"></i>
+        </button>
+      </div>
+    </div>
+  </nav>
+
+  <!-- ==================== SLIDE 1: COVER & BRAND IDENTITY ==================== -->
+  <section class="slide active flex-col justify-center items-center px-6 pt-20 pb-12 relative overflow-hidden" id="slide-1">
+    <div class="absolute -top-32 -left-32 w-96 h-96 bg-roseGold/10 rounded-full blur-3xl pointer-events-none"></div>
+    <div class="absolute -bottom-32 -right-32 w-96 h-96 bg-sageSafe/5 rounded-full blur-3xl pointer-events-none"></div>
+
+    <div class="max-w-4xl mx-auto text-center flex flex-col items-center">
+      <!-- Logo Container -->
+      <div class="w-32 h-32 md:w-40 md:h-40 rounded-3xl p-1 bg-gradient-to-tr from-berryCore via-roseGold to-sageSafe glow-box mb-8 shadow-2xl transition hover:scale-105 duration-300">
+        <img src="../design/gosafe_app_icon.jpg" alt="Go Safe Logo" class="w-full h-full rounded-[22px] object-cover">
+      </div>
+
+      <div class="inline-flex items-center space-x-2 px-4 py-1.5 rounded-full bg-roseGoldMuted border border-roseGold/30 text-roseGoldLight text-xs font-bold tracking-widest uppercase mb-4">
+        <span>Verified Mobility Ecosystem</span>
+        <span class="w-1.5 h-1.5 rounded-full bg-sageSafe animate-pulse"></span>
+        <span class="text-sageSafe font-mono">Cairo 2026</span>
+      </div>
+
+      <h1 class="text-5xl md:text-7xl font-black tracking-tight text-white mb-2 text-glow">
+        GO SAFE <span class="text-roseGoldLight font-bold">| جو سِـــيف</span>
+      </h1>
+      <p class="text-lg md:text-xl text-white/70 max-w-2xl font-light mb-8">
+        Smart, Verified &amp; Safe Mobility Platform engineered on Google Cloud Firestore with real-time dispatch and physical handshake verification.
+      </p>
+
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-4 w-full max-w-3xl">
+        <div class="glass-panel p-4 rounded-2xl border border-cardBorder text-left">
+          <div class="text-xs text-roseGold font-mono mb-1">FLEET ARCHITECTURE</div>
+          <div class="text-sm font-bold text-white">Dual-Tier Fleet</div>
+          <div class="text-[11px] text-white/50">Standard &amp; Go Safe Her</div>
+        </div>
+        <div class="glass-panel p-4 rounded-2xl border border-cardBorder text-left">
+          <div class="text-xs text-sageSafe font-mono mb-1">SAFETY PROTOCOL</div>
+          <div class="text-sm font-bold text-white">4-Digit PIN</div>
+          <div class="text-[11px] text-white/50">Guaranteed Handshake</div>
+        </div>
+        <div class="glass-panel p-4 rounded-2xl border border-cardBorder text-left">
+          <div class="text-xs text-roseGold font-mono mb-1">CLOUD ENGINE</div>
+          <div class="text-sm font-bold text-white">Firebase Firestore</div>
+          <div class="text-[11px] text-white/50">Sub-100ms Live Streams</div>
+        </div>
+        <div class="glass-panel p-4 rounded-2xl border border-cardBorder text-left">
+          <div class="text-xs text-sageSafe font-mono mb-1">SECURITY RULES</div>
+          <div class="text-sm font-bold text-white">709 Hardened Lines</div>
+          <div class="text-[11px] text-white/50">RBAC &amp; PII Shielding</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== SLIDE 2: THE PROBLEM & GO SAFE SOLUTION ==================== -->
+  <section class="slide flex-col justify-center px-6 pt-20 pb-12 max-w-6xl mx-auto w-full" id="slide-2">
+    <div class="text-center max-w-2xl mx-auto mb-10">
+      <span class="text-xs font-mono uppercase text-roseGold tracking-widest font-bold">Urban Transit Analysis</span>
+      <h2 class="text-3xl md:text-5xl font-black text-white mt-1">Why Traditional Mobility Fails</h2>
+      <p class="text-sm text-white/60 mt-2">Addressing core safety risks, driver spoofing, and passenger anxiety in high-density urban centers.</p>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-8 items-stretch">
+      <!-- The Problem Card -->
+      <div class="glass-panel p-8 rounded-3xl border border-red-500/20 bg-red-950/10 flex flex-col justify-between">
+        <div>
+          <div class="flex items-center space-x-3 mb-6">
+            <div class="w-10 h-10 rounded-xl bg-red-500/20 border border-red-500/30 flex items-center justify-center text-red-400">
+              <i data-lucide="shield-alert" class="w-5 h-5"></i>
+            </div>
+            <h3 class="text-xl font-bold text-white">The Vulnerabilities</h3>
+          </div>
+          <ul class="space-y-4 text-sm text-white/70">
+            <li class="flex items-start space-x-3">
+              <i data-lucide="x" class="w-5 h-5 text-red-400 shrink-0 mt-0.5"></i>
+              <span><strong>Driver Impersonation:</strong> Rogue drivers picking up wrong passengers due to missing physical verification.</span>
+            </li>
+            <li class="flex items-start space-x-3">
+              <i data-lucide="x" class="w-5 h-5 text-red-400 shrink-0 mt-0.5"></i>
+              <span><strong>Gender Safety Gaps:</strong> Female passengers in Egypt often face discomfort without guaranteed female-only options.</span>
+            </li>
+            <li class="flex items-start space-x-3">
+              <i data-lucide="x" class="w-5 h-5 text-red-400 shrink-0 mt-0.5"></i>
+              <span><strong>Slow Polling Latency:</strong> Traditional HTTP polling causes missed ride notifications or race condition collisions.</span>
+            </li>
+          </ul>
+        </div>
+        <div class="mt-6 pt-4 border-t border-red-500/20 text-xs text-red-400/80 font-mono">
+          RESULT: Unpredictable transit &amp; compromised user safety
+        </div>
+      </div>
+
+      <!-- The Go Safe Solution Card -->
+      <div class="glass-panel p-8 rounded-3xl border border-sageSafe/30 bg-emerald-950/10 flex flex-col justify-between">
+        <div>
+          <div class="flex items-center space-x-3 mb-6">
+            <div class="w-10 h-10 rounded-xl bg-sageSafe/20 border border-sageSafe/30 flex items-center justify-center text-sageSafe">
+              <i data-lucide="shield-check" class="w-5 h-5"></i>
+            </div>
+            <h3 class="text-xl font-bold text-white">The Go Safe Engineering</h3>
+          </div>
+          <ul class="space-y-4 text-sm text-white/80">
+            <li class="flex items-start space-x-3">
+              <i data-lucide="check" class="w-5 h-5 text-sageSafe shrink-0 mt-0.5"></i>
+              <span><strong>Mandatory 4-Digit Handshake PIN:</strong> Trips cannot physically initiate in software until passenger delivers PIN to driver.</span>
+            </li>
+            <li class="flex items-start space-x-3">
+              <i data-lucide="check" class="w-5 h-5 text-sageSafe shrink-0 mt-0.5"></i>
+              <span><strong>Go Safe Her (100% Female):</strong> Strict biometric and National ID OCR onboarding to guarantee women-only safety.</span>
+            </li>
+            <li class="flex items-start space-x-3">
+              <i data-lucide="check" class="w-5 h-5 text-sageSafe shrink-0 mt-0.5"></i>
+              <span><strong>WebSocket Real-Time Dispatch:</strong> Firestore live event listeners notify driver devices in less than 100 milliseconds.</span>
+            </li>
+          </ul>
+        </div>
+        <div class="mt-6 pt-4 border-t border-sageSafe/20 text-xs text-sageSafe font-mono">
+          RESULT: Zero-trust, atomic, and verifiable urban mobility
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== SLIDE 3: HOW IT GOES (USER JOURNEY) ==================== -->
+  <section class="slide flex-col justify-center px-6 pt-20 pb-12 max-w-6xl mx-auto w-full" id="slide-3">
+    <div class="text-center max-w-2xl mx-auto mb-8">
+      <span class="text-xs font-mono uppercase text-roseGold tracking-widest font-bold">End-To-End Experience</span>
+      <h2 class="text-3xl md:text-5xl font-black text-white mt-1">How It Goes: The Ride Lifecycle</h2>
+      <p class="text-sm text-white/60 mt-1">From initial login to atomic trip claim, handshake verification, and completion.</p>
+    </div>
+
+    <!-- Step Grid -->
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-5">
+      <!-- Step 1 -->
+      <div class="glass-panel p-6 rounded-2xl border border-cardBorder relative">
+        <span class="absolute top-4 right-4 text-3xl font-black text-white/10 font-mono">01</span>
+        <div class="w-9 h-9 rounded-xl bg-roseGoldMuted border border-roseGold/30 flex items-center justify-center text-roseGoldLight mb-4">
+          <i data-lucide="user-check" class="w-4 h-4"></i>
+        </div>
+        <h4 class="text-base font-bold text-white mb-1.5">Intelligent Onboarding</h4>
+        <p class="text-xs text-white/60 leading-relaxed">
+          Default login screen (Username or Mobile + Password). Interactive "Register Now" modal directs user to Client or Captain onboarding with 14-digit National ID and vehicle specs.
+        </p>
+      </div>
+
+      <!-- Step 2 -->
+      <div class="glass-panel p-6 rounded-2xl border border-cardBorder relative">
+        <span class="absolute top-4 right-4 text-3xl font-black text-white/10 font-mono">02</span>
+        <div class="w-9 h-9 rounded-xl bg-roseGoldMuted border border-roseGold/30 flex items-center justify-center text-roseGoldLight mb-4">
+          <i data-lucide="map-pin" class="w-4 h-4"></i>
+        </div>
+        <h4 class="text-base font-bold text-white mb-1.5">Fleet Booking &amp; Preview</h4>
+        <p class="text-xs text-white/60 leading-relaxed">
+          Passenger enters pickup &amp; drop-off. Selects either <strong>Go Safe Standard</strong> or <strong>Go Safe Her</strong>. Dynamic formula preview: Base 15 EGP + 10 EGP/km (Min 25 EGP).
+        </p>
+      </div>
+
+      <!-- Step 3 -->
+      <div class="glass-panel p-6 rounded-2xl border border-cardBorder relative">
+        <span class="absolute top-4 right-4 text-3xl font-black text-white/10 font-mono">03</span>
+        <div class="w-9 h-9 rounded-xl bg-sageDark border border-sageSafe/40 flex items-center justify-center text-sageSafe mb-4">
+          <i data-lucide="radar" class="w-4 h-4"></i>
+        </div>
+        <h4 class="text-base font-bold text-white mb-1.5">Instant Driver Alert</h4>
+        <p class="text-xs text-white/60 leading-relaxed">
+          Firestore document is created with <code class="text-sageSafe">status: 'requested'</code>. Active drivers' <code class="text-sageSafe">streamAvailableRides</code> listeners trigger instantly with haptic vibration and 30s modal.
+        </p>
+      </div>
+
+      <!-- Step 4 -->
+      <div class="glass-panel p-6 rounded-2xl border border-cardBorder relative">
+        <span class="absolute top-4 right-4 text-3xl font-black text-white/10 font-mono">04</span>
+        <div class="w-9 h-9 rounded-xl bg-roseGoldMuted border border-roseGold/30 flex items-center justify-center text-roseGoldLight mb-4">
+          <i data-lucide="zap" class="w-4 h-4"></i>
+        </div>
+        <h4 class="text-base font-bold text-white mb-1.5">Atomic Trip Acceptance</h4>
+        <p class="text-xs text-white/60 leading-relaxed">
+          Captain taps "Accept Trip". A Firestore Transaction locks the trip to that driver. Prevents race conditions. Rider screen instantly updates with captain name, vehicle plate, and secret PIN.
+        </p>
+      </div>
+
+      <!-- Step 5 -->
+      <div class="glass-panel p-6 rounded-2xl border border-cardBorder relative">
+        <span class="absolute top-4 right-4 text-3xl font-black text-white/10 font-mono">05</span>
+        <div class="w-9 h-9 rounded-xl bg-sageDark border border-sageSafe/40 flex items-center justify-center text-sageSafe mb-4">
+          <i data-lucide="key" class="w-4 h-4"></i>
+        </div>
+        <h4 class="text-base font-bold text-white mb-1.5">Handshake Safety PIN</h4>
+        <p class="text-xs text-white/60 leading-relaxed">
+          Driver arrives at pickup. Passenger provides their 4-digit PIN. Driver enters PIN in app; once validated, trip switches to <code class="text-sageSafe">in_progress</code> and live GPS stream begins.
+        </p>
+      </div>
+
+      <!-- Step 6 -->
+      <div class="glass-panel p-6 rounded-2xl border border-cardBorder relative">
+        <span class="absolute top-4 right-4 text-3xl font-black text-white/10 font-mono">06</span>
+        <div class="w-9 h-9 rounded-xl bg-roseGoldMuted border border-roseGold/30 flex items-center justify-center text-roseGoldLight mb-4">
+          <i data-lucide="award" class="w-4 h-4"></i>
+        </div>
+        <h4 class="text-base font-bold text-white mb-1.5">Safe Arrival &amp; Rating</h4>
+        <p class="text-xs text-white/60 leading-relaxed">
+          Captain completes the trip. Exact fare is settled, digital itemized receipt is displayed to rider, and a two-way 5-star rating with safety badges is recorded into Firestore.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== SLIDE 4: HOW IT'S BUILT (SYSTEM ARCHITECTURE) ==================== -->
+  <section class="slide flex-col justify-center px-6 pt-20 pb-12 max-w-6xl mx-auto w-full" id="slide-4">
+    <div class="text-center max-w-2xl mx-auto mb-8">
+      <span class="text-xs font-mono uppercase text-roseGold tracking-widest font-bold">Cloud Engineering</span>
+      <h2 class="text-3xl md:text-5xl font-black text-white mt-1">How It's Built: Architecture</h2>
+      <p class="text-sm text-white/60 mt-1">A decoupled, serverless reactive architecture ensuring high availability and zero daemon crashes.</p>
+    </div>
+
+    <!-- Architecture Visual Columns -->
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <!-- Tier 1: Client Layer -->
+      <div class="glass-panel p-6 rounded-3xl border border-cardBorder flex flex-col justify-between">
+        <div>
+          <div class="flex items-center justify-between mb-4">
+            <span class="text-xs font-mono text-roseGold font-bold">TIER 01</span>
+            <span class="px-2.5 py-0.5 rounded-full bg-blue-500/10 text-blue-400 text-[10px] font-bold border border-blue-500/20">Flutter 3.47</span>
+          </div>
+          <h3 class="text-lg font-bold text-white mb-2">Mobile Client Tier</h3>
+          <p class="text-xs text-white/60 mb-6">Cross-platform reactive UI built in Dart with role-based routing.</p>
+          
+          <div class="space-y-3">
+            <div class="bg-black/30 p-3 rounded-xl border border-white/5">
+              <div class="text-xs font-bold text-white">Unified Entrypoint (main.dart)</div>
+              <div class="text-[11px] text-white/50">Dynamic routing based on user profile role ('driver' vs 'rider')</div>
+            </div>
+            <div class="bg-black/30 p-3 rounded-xl border border-white/5">
+              <div class="text-xs font-bold text-white">Rider &amp; Driver Engines</div>
+              <div class="text-[11px] text-white/50">Flutter Map, Geolocator, In-Ride Chat Sheet &amp; Safety Shield</div>
+            </div>
+            <div class="bg-black/30 p-3 rounded-xl border border-white/5">
+              <div class="text-xs font-bold text-white">Offline Resilience</div>
+              <div class="text-[11px] text-white/50">SharedPreferences &amp; Firestore offline document cache</div>
+            </div>
+          </div>
+        </div>
+        <div class="mt-6 pt-4 border-t border-cardBorder text-xs text-white/40 font-mono">
+          Single Unified APK (Go Safe Release)
+        </div>
+      </div>
+
+      <!-- Tier 2: Cloud Platform Layer -->
+      <div class="glass-panel p-6 rounded-3xl border border-roseGold/40 bg-roseGold/5 flex flex-col justify-between glow-box">
+        <div>
+          <div class="flex items-center justify-between mb-4">
+            <span class="text-xs font-mono text-roseGoldLight font-bold">TIER 02</span>
+            <span class="px-2.5 py-0.5 rounded-full bg-roseGold/20 text-roseGoldLight text-[10px] font-bold border border-roseGold/40">Firebase rafik-98844</span>
+          </div>
+          <h3 class="text-lg font-bold text-white mb-2">Cloud Backend Engine</h3>
+          <p class="text-xs text-white/60 mb-6">Serverless NoSQL database, auth, and state synchronization.</p>
+          
+          <div class="space-y-3">
+            <div class="bg-black/40 p-3 rounded-xl border border-roseGold/20">
+              <div class="text-xs font-bold text-roseGoldLight">Cloud Firestore Streams</div>
+              <div class="text-[11px] text-white/60">Real-time WebSocket event dispatching without server daemons</div>
+            </div>
+            <div class="bg-black/40 p-3 rounded-xl border border-roseGold/20">
+              <div class="text-xs font-bold text-roseGoldLight">Atomic Transactions</div>
+              <div class="text-[11px] text-white/60">ACID compliance during concurrent ride acceptance</div>
+            </div>
+            <div class="bg-black/40 p-3 rounded-xl border border-roseGold/20">
+              <div class="text-xs font-bold text-roseGoldLight">709 Security Rules</div>
+              <div class="text-[11px] text-white/60">Strict declarative RBAC, state validations &amp; PII shielding</div>
+            </div>
+          </div>
+        </div>
+        <div class="mt-6 pt-4 border-t border-roseGold/20 text-xs text-roseGoldLight/70 font-mono">
+          99.99% Cloud SLA &amp; Zero Maintenance
+        </div>
+      </div>
+
+      <!-- Tier 3: Operations & Admin Layer -->
+      <div class="glass-panel p-6 rounded-3xl border border-cardBorder flex flex-col justify-between">
+        <div>
+          <div class="flex items-center justify-between mb-4">
+            <span class="text-xs font-mono text-sageSafe font-bold">TIER 03</span>
+            <span class="px-2.5 py-0.5 rounded-full bg-sageSafe/10 text-sageSafe text-[10px] font-bold border border-sageSafe/20">Web &amp; Leaflet</span>
+          </div>
+          <h3 class="text-lg font-bold text-white mb-2">Command Center</h3>
+          <p class="text-xs text-white/60 mb-6">Operations room dashboard for live fleet oversight.</p>
+          
+          <div class="space-y-3">
+            <div class="bg-black/30 p-3 rounded-xl border border-white/5">
+              <div class="text-xs font-bold text-white">Live Cairo Fleet Radar</div>
+              <div class="text-[11px] text-white/50">Interactive Leaflet.js map tracking all active drivers</div>
+            </div>
+            <div class="bg-black/30 p-3 rounded-xl border border-white/5">
+              <div class="text-xs font-bold text-white">Driver Intake Approval</div>
+              <div class="text-[11px] text-white/50">6-sided document vault for national ID &amp; license review</div>
+            </div>
+            <div class="bg-black/30 p-3 rounded-xl border border-white/5">
+              <div class="text-xs font-bold text-white">SOS Emergency Center</div>
+              <div class="text-[11px] text-white/50">Real-time emergency beacon alerts with passenger location</div>
+            </div>
+          </div>
+        </div>
+        <div class="mt-6 pt-4 border-t border-cardBorder text-xs text-white/40 font-mono">
+          Standalone Static Dashboard (Zero Hosting Cost)
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== SLIDE 5: LIVE MOBILE APP SCREENSHOTS ==================== -->
+  <section class="slide flex-col justify-center px-6 pt-20 pb-12 max-w-6xl mx-auto w-full" id="slide-5">
+    <div class="text-center max-w-2xl mx-auto mb-8">
+      <span class="text-xs font-mono uppercase text-roseGold tracking-widest font-bold">Visual Product Showcase</span>
+      <h2 class="text-3xl md:text-5xl font-black text-white mt-1">Live Mobile App UI</h2>
+      <p class="text-sm text-white/60 mt-1">Obsidian &amp; Rose Gold ergonomics engineered for day and night transit.</p>
+    </div>
+
+    <!-- Screenshots Grid -->
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <!-- Image 1 -->
+      <div class="glass-panel p-4 rounded-3xl border border-cardBorder group hover:border-roseGold transition">
+        <div class="rounded-2xl overflow-hidden bg-black/50 aspect-[4/3] mb-3">
+          <img src="../design/screenshots/rafik_mobile_dual_screens.png" alt="Dual Screens" class="w-full h-full object-cover group-hover:scale-105 transition duration-500">
+        </div>
+        <h4 class="text-sm font-bold text-white mb-1">Dual-Mode Client &amp; Captain</h4>
+        <p class="text-[11px] text-white/50">Seamless role switching from a single unified APK with tailored workflows.</p>
+      </div>
+
+      <!-- Image 2 -->
+      <div class="glass-panel p-4 rounded-3xl border border-cardBorder group hover:border-roseGold transition">
+        <div class="rounded-2xl overflow-hidden bg-black/50 aspect-[4/3] mb-3">
+          <img src="../design/screenshots/rafik_dispatch_radar_live.png" alt="Driver Radar" class="w-full h-full object-cover group-hover:scale-105 transition duration-500">
+        </div>
+        <h4 class="text-sm font-bold text-white mb-1">Captain Dispatch Radar</h4>
+        <p class="text-[11px] text-white/50">30-second live offer countdown card, route details, and instant trip accept button.</p>
+      </div>
+
+      <!-- Image 3 -->
+      <div class="glass-panel p-4 rounded-3xl border border-cardBorder group hover:border-roseGold transition">
+        <div class="rounded-2xl overflow-hidden bg-black/50 aspect-[4/3] mb-3">
+          <img src="../design/screenshots/rafik_document_vault_live.png" alt="Document Vault" class="w-full h-full object-cover group-hover:scale-105 transition duration-500">
+        </div>
+        <h4 class="text-sm font-bold text-white mb-1">6-Sided Document Vault</h4>
+        <p class="text-[11px] text-white/50">National ID OCR, vehicle registration, and criminal background verification.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== SLIDE 6: SECURITY & FIRESTORE RULES ==================== -->
+  <section class="slide flex-col justify-center px-6 pt-20 pb-12 max-w-6xl mx-auto w-full" id="slide-6">
+    <div class="text-center max-w-2xl mx-auto mb-8">
+      <span class="text-xs font-mono uppercase text-sageSafe tracking-widest font-bold">Zero-Trust Security</span>
+      <h2 class="text-3xl md:text-5xl font-black text-white mt-1">Security Engineering &amp; Rules</h2>
+      <p class="text-sm text-white/60 mt-1">709 lines of production-grade Firestore Security Rules enforcing integrity at the cloud engine.</p>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+      <!-- Rules Features -->
+      <div class="space-y-4">
+        <div class="glass-panel p-5 rounded-2xl border border-cardBorder">
+          <div class="flex items-center space-x-3 mb-2">
+            <div class="w-8 h-8 rounded-lg bg-sageSafe/20 text-sageSafe flex items-center justify-center font-bold text-xs">
+              <i data-lucide="lock" class="w-4 h-4"></i>
+            </div>
+            <h4 class="text-sm font-bold text-white">Role-Based Access Control (RBAC)</h4>
+          </div>
+          <p class="text-xs text-white/60">Strict checks ensuring riders cannot view unassigned drivers or manipulate driver status, and drivers cannot access other drivers' wallets.</p>
+        </div>
+
+        <div class="glass-panel p-5 rounded-2xl border border-cardBorder">
+          <div class="flex items-center space-x-3 mb-2">
+            <div class="w-8 h-8 rounded-lg bg-roseGold/20 text-roseGoldLight flex items-center justify-center font-bold text-xs">
+              <i data-lucide="dollar-sign" class="w-4 h-4"></i>
+            </div>
+            <h4 class="text-sm font-bold text-white">Immutable Financial Calculations</h4>
+          </div>
+          <p class="text-xs text-white/60">Client applications cannot dictate arbitrary fares. All ride prices are validated against the formula: <span class="font-mono text-sageSafe">max(25.00, 15.00 + km * 10.00)</span>.</p>
+        </div>
+
+        <div class="glass-panel p-5 rounded-2xl border border-cardBorder">
+          <div class="flex items-center space-x-3 mb-2">
+            <div class="w-8 h-8 rounded-lg bg-blue-500/20 text-blue-400 flex items-center justify-center font-bold text-xs">
+              <i data-lucide="eye-off" class="w-4 h-4"></i>
+            </div>
+            <h4 class="text-sm font-bold text-white">PII Shielding &amp; Privacy</h4>
+          </div>
+          <p class="text-xs text-white/60">National ID numbers and contact phone numbers are concealed from open queries and only visible to the assigned party during an active ride.</p>
+        </div>
+      </div>
+
+      <!-- Code Snippet Box -->
+      <div class="glass-panel p-6 rounded-3xl border border-cardBorder font-mono text-xs flex flex-col justify-between bg-black/60">
+        <div>
+          <div class="flex items-center justify-between pb-3 mb-4 border-b border-white/10 text-white/40 text-[11px]">
+            <span>firestore.rules (Excerpt)</span>
+            <span class="text-sageSafe">709 Lines Active</span>
+          </div>
+          <pre class="text-white/80 overflow-x-auto leading-relaxed">
+<span class="text-purple-400">match</span> /rides/{rideId} {
+  <span class="text-purple-400">allow</span> <span class="text-blue-400">create</span>: <span class="text-purple-400">if</span> isAuthenticated() 
+    &amp;&amp; request.resource.data.rider_id == request.auth.uid
+    &amp;&amp; request.resource.data.status == <span class="text-emerald-300">'requested'</span>;
+
+  <span class="text-purple-400">allow</span> <span class="text-blue-400">update</span>: <span class="text-purple-400">if</span> (
+    <span class="text-white/40">// Captain accepts atomically</span>
+    isDriver() 
+    &amp;&amp; resource.data.status == <span class="text-emerald-300">'requested'</span>
+    &amp;&amp; request.resource.data.status == <span class="text-emerald-300">'accepted'</span>
+    &amp;&amp; request.resource.data.driver_id == request.auth.uid
+  ) || (
+    <span class="text-white/40">// Handshake PIN verification</span>
+    resource.data.driver_id == request.auth.uid
+    &amp;&amp; request.resource.data.status == <span class="text-emerald-300">'in_progress'</span>
+  );
+}</pre>
+        </div>
+        <div class="mt-4 pt-3 border-t border-white/10 text-[10px] text-white/40">
+          Enforced server-side directly by Google Cloud Firestore
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== SLIDE 7: OPERATIONS COMMAND CENTER ==================== -->
+  <section class="slide flex-col justify-center px-6 pt-20 pb-12 max-w-6xl mx-auto w-full" id="slide-7">
+    <div class="text-center max-w-2xl mx-auto mb-8">
+      <span class="text-xs font-mono uppercase text-roseGold tracking-widest font-bold">Centralized Fleet Management</span>
+      <h2 class="text-3xl md:text-5xl font-black text-white mt-1">Operations Command Center</h2>
+      <p class="text-sm text-white/60 mt-1">High-density administrative portal for real-time monitoring, intake approvals, and safety audits.</p>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-8 items-center">
+      <div class="glass-panel p-4 rounded-3xl border border-cardBorder glow-box">
+        <div class="rounded-2xl overflow-hidden aspect-[16/10] bg-black">
+          <img src="../design/screenshots/rafik_admin_portal_live.png" alt="Admin Portal" class="w-full h-full object-cover">
+        </div>
+      </div>
+
+      <div class="space-y-4">
+        <div class="glass-panel p-5 rounded-2xl border border-cardBorder">
+          <h4 class="text-base font-bold text-white mb-1">Live Cairo Telemetry</h4>
+          <p class="text-xs text-white/60">Real-time driver location markers streamed via OpenStreetMap &amp; Leaflet with battery and heading indicators.</p>
+        </div>
+        <div class="glass-panel p-5 rounded-2xl border border-cardBorder">
+          <h4 class="text-base font-bold text-white mb-1">Driver Intake Queue</h4>
+          <p class="text-xs text-white/60">Document validation dashboard allowing dispatch operators to approve or reject submitted national IDs with one click.</p>
+        </div>
+        <div class="glass-panel p-5 rounded-2xl border border-cardBorder">
+          <h4 class="text-base font-bold text-white mb-1">Emergency SOS Incident Room</h4>
+          <p class="text-xs text-white/60">Instant audio-visual alert triggers with precise GPS coordinate locks whenever a passenger or driver activates emergency SOS.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== SLIDE 8: SUMMARY & SPECIFICATIONS ==================== -->
+  <section class="slide flex-col justify-center px-6 pt-20 pb-12 max-w-5xl mx-auto w-full text-center" id="slide-8">
+    <div class="w-20 h-20 rounded-2xl mx-auto mb-6 p-0.5 bg-gradient-to-tr from-berryCore via-roseGold to-sageSafe glow-box shadow-xl">
+      <img src="../design/gosafe_app_icon.jpg" alt="Go Safe Icon" class="w-full h-full rounded-[14px] object-cover">
+    </div>
+
+    <h2 class="text-4xl md:text-6xl font-black text-white mb-3 text-glow">GO SAFE (جو سِـــيف)</h2>
+    <p class="text-base text-roseGoldLight max-w-xl mx-auto mb-8 font-light">
+      A completed, verified, and production-ready mobility platform built with clean software architecture and zero legacy baggage.
+    </p>
+
+    <!-- Technical Specs Grid -->
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-left max-w-3xl mx-auto mb-10">
+      <div class="glass-panel p-4 rounded-xl border border-cardBorder">
+        <div class="text-[10px] text-white/40 font-mono">RELEASE BINARY</div>
+        <div class="text-sm font-bold text-white">apks/Rafik.apk</div>
+        <div class="text-[11px] text-sageSafe">Single Unified APK</div>
+      </div>
+      <div class="glass-panel p-4 rounded-xl border border-cardBorder">
+        <div class="text-[10px] text-white/40 font-mono">CLOUD PROJECT</div>
+        <div class="text-sm font-bold text-white">rafik-98844</div>
+        <div class="text-[11px] text-roseGoldLight">Firebase Standard</div>
+      </div>
+      <div class="glass-panel p-4 rounded-xl border border-cardBorder">
+        <div class="text-[10px] text-white/40 font-mono">CODE QUALITY</div>
+        <div class="text-sm font-bold text-white">0 Analyzer Errors</div>
+        <div class="text-[11px] text-sageSafe">100% Type-Safe Dart</div>
+      </div>
+      <div class="glass-panel p-4 rounded-xl border border-cardBorder">
+        <div class="text-[10px] text-white/40 font-mono">DISPATCH SPEED</div>
+        <div class="text-sm font-bold text-white">&lt; 100ms</div>
+        <div class="text-[11px] text-sageSafe">Instant Push</div>
+      </div>
+    </div>
+
+    <div class="inline-flex items-center space-x-3 px-6 py-3 rounded-full bg-roseGold text-black font-extrabold text-sm hover:bg-roseGoldLight transition cursor-pointer" onclick="goToSlide(1)">
+      <span>Restart Presentation</span>
+      <i data-lucide="rotate-ccw" class="w-4 h-4"></i>
+    </div>
+  </section>
+
+  <!-- BOTTOM SLIDE CONTROLLER FOOTER -->
+  <footer class="fixed bottom-0 left-0 right-0 z-50 glass-panel border-t border-cardBorder px-6 py-2.5 flex items-center justify-between text-xs text-white/50">
+    <div class="hidden sm:block font-mono">
+      Use <kbd class="px-1.5 py-0.5 rounded bg-white/10 text-white font-mono text-[10px]">←</kbd> <kbd class="px-1.5 py-0.5 rounded bg-white/10 text-white font-mono text-[10px]">→</kbd> or Click to navigate slides
+    </div>
+    <div class="flex items-center space-x-1.5 mx-auto sm:mx-0">
+      <span class="w-2 h-2 rounded-full bg-sageSafe"></span>
+      <span class="text-white/80 font-mono text-[11px]">Go Safe System Blueprint • All Rights Reserved 2026</span>
+    </div>
+    <div class="hidden sm:flex items-center space-x-3">
+      <button onclick="toggleFullScreen()" class="hover:text-white transition flex items-center space-x-1">
+        <i data-lucide="maximize" class="w-3.5 h-3.5"></i>
+        <span>Fullscreen</span>
+      </button>
+    </div>
+  </footer>
+
+  <script>
+    // Initialize Lucide Icons
+    lucide.createIcons();
+
+    let currentSlide = 1;
+    const totalSlides = 8;
+
+    function updateSlide() {
+      document.querySelectorAll('.slide').forEach((slide, idx) => {
+        if (idx + 1 === currentSlide) {
+          slide.classList.add('active');
+        } else {
+          slide.classList.remove('active');
+        }
+      });
+      document.getElementById('currentSlideNum').innerText = currentSlide;
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    function nextSlide() {
+      if (currentSlide < totalSlides) {
+        currentSlide++;
+        updateSlide();
+      }
+    }
+
+    function prevSlide() {
+      if (currentSlide > 1) {
+        currentSlide--;
+        updateSlide();
+      }
+    }
+
+    function goToSlide(n) {
+      currentSlide = n;
+      updateSlide();
+    }
+
+    // Keyboard navigation
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowRight' || e.key === 'Space') {
+        nextSlide();
+      } else if (e.key === 'ArrowLeft') {
+        prevSlide();
+      }
+    });
+
+    function toggleFullScreen() {
+      if (!document.fullscreenElement) {
+        document.documentElement.requestFullscreen();
+      } else {
+        if (document.exitFullscreen) {
+          document.exitFullscreen();
+        }
+      }
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,66 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1A0D14"/>
+      <stop offset="50%" stop-color="#12080C"/>
+      <stop offset="100%" stop-color="#090406"/>
+    </linearGradient>
+    <linearGradient id="roseGoldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FCE4E6"/>
+      <stop offset="35%" stop-color="#E8B4B8"/>
+      <stop offset="70%" stop-color="#B76E79"/>
+      <stop offset="100%" stop-color="#8E4A55"/>
+    </linearGradient>
+    <linearGradient id="sageSafeGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#80ED99"/>
+      <stop offset="100%" stop-color="#38A3A5"/>
+    </linearGradient>
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="10" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+    </filter>
+  </defs>
+
+  <!-- Dark Obsidian Canvas -->
+  <rect width="512" height="512" rx="110" fill="url(#bgGrad)"/>
+  <rect width="504" height="504" x="4" y="4" rx="106" fill="none" stroke="url(#roseGoldGrad)" stroke-width="2" stroke-opacity="0.25"/>
+
+  <!-- Protective Safety Shield Contour -->
+  <path d="M 256 65
+           C 335 65, 395 105, 410 175
+           C 410 295, 345 375, 256 430
+           C 167 375, 102 295, 102 175
+           C 117 105, 177 65, 256 65 Z"
+        fill="none"
+        stroke="url(#roseGoldGrad)"
+        stroke-width="14"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        filter="url(#glow)"/>
+
+  <!-- Dynamic "Go" Navigation Arrow & Stylized Core -->
+  <!-- Forward Chevron / Mobility Path -->
+  <path d="M 195 180
+           L 290 248
+           L 195 316"
+        fill="none"
+        stroke="url(#roseGoldGrad)"
+        stroke-width="20"
+        stroke-linecap="round"
+        stroke-linejoin="round"/>
+
+  <!-- Safe Verified Core Beacon / Pin Point -->
+  <circle cx="340" cy="248" r="14" fill="url(#sageSafeGrad)" filter="url(#glow)"/>
+
+  <!-- Inner Protective Shield Accent -->
+  <path d="M 256 120
+           C 305 120, 342 145, 352 190
+           C 352 270, 310 325, 256 365
+           C 202 325, 160 270, 160 190
+           C 170 145, 207 120, 256 120 Z"
+        fill="none"
+        stroke="url(#roseGoldGrad)"
+        stroke-width="3"
+        stroke-dasharray="8 8"
+        stroke-opacity="0.4"/>
+</svg>
