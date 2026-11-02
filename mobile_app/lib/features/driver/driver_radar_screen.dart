@@ -69,12 +69,18 @@ class _DriverRadarScreenState extends State<DriverRadarScreen> with WidgetsBindi
   }
 
   void _openChat() {
+    if (_incomingRideId.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No active ride for chat.')),
+      );
+      return;
+    }
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
       builder: (_) => InRideChatSheet(
-        rideId: _incomingRideId.isNotEmpty ? _incomingRideId : 'demo-ride',
+        rideId: _incomingRideId,
         myRole: 'driver',
         otherPartyName: 'Passenger',
         otherPartySubtitle: _isUperGirlEnrolled ? 'Go Safe Her Passenger' : 'Go Safe Passenger',
@@ -92,6 +98,52 @@ class _DriverRadarScreenState extends State<DriverRadarScreen> with WidgetsBindi
   Future<void> _loadDriverSession() async {
     final user = FirebaseService().currentUser;
     if (user != null) {
+      // Initialize FCM token registration and notification listeners for captain
+      FirebaseService().initializeFcm(
+        onOfferReceived: (msg) {
+          debugPrint('[DriverRadar] FCM push offer received: ${msg.data}');
+          if (msg.data['type'] == 'ride_offer' && !_tripAccepted) {
+            final rideId = msg.data['ride_id']?.toString();
+            final offerId = msg.data['offer_id']?.toString() ?? rideId;
+            if (rideId != null && mounted) {
+              setState(() {
+                _incomingOfferId = offerId ?? '';
+                _incomingRideId = rideId;
+                _incomingTier = msg.data['tier']?.toString() ?? 'standard';
+                _incomingPickupName = msg.data['pickup_address']?.toString() ?? 'Pickup Location';
+                _incomingDropoffName = msg.data['dropoff_address']?.toString() ?? 'Destination';
+                _incomingDistanceKm = double.tryParse(msg.data['distance_km']?.toString() ?? '5.0') ?? 5.0;
+                _incomingFareEgp = double.tryParse(msg.data['fare_egp']?.toString() ?? '65.0') ?? 65.0;
+                _hasIncomingRequest = true;
+                _countdownSeconds = 30;
+              });
+              _startCountdownTimer();
+            }
+          }
+        },
+        onNotificationOpened: (msg) {
+          debugPrint('[DriverRadar] FCM notification opened: ${msg.data}');
+          if (msg.data['type'] == 'ride_offer' && !_tripAccepted) {
+            final rideId = msg.data['ride_id']?.toString();
+            final offerId = msg.data['offer_id']?.toString() ?? rideId;
+            if (rideId != null && mounted) {
+              setState(() {
+                _incomingOfferId = offerId ?? '';
+                _incomingRideId = rideId;
+                _incomingTier = msg.data['tier']?.toString() ?? 'standard';
+                _incomingPickupName = msg.data['pickup_address']?.toString() ?? 'Pickup Location';
+                _incomingDropoffName = msg.data['dropoff_address']?.toString() ?? 'Destination';
+                _incomingDistanceKm = double.tryParse(msg.data['distance_km']?.toString() ?? '5.0') ?? 5.0;
+                _incomingFareEgp = double.tryParse(msg.data['fare_egp']?.toString() ?? '65.0') ?? 65.0;
+                _hasIncomingRequest = true;
+                _countdownSeconds = 30;
+              });
+              _startCountdownTimer();
+            }
+          }
+        },
+      );
+
       final prof = await FirebaseService().getUserProfile(user.uid);
       final drv = await FirebaseService().getDriverProfile(user.uid);
       if (mounted) {
@@ -259,11 +311,7 @@ class _DriverRadarScreenState extends State<DriverRadarScreen> with WidgetsBindi
 
   void _markArrived() async {
     try {
-      await FirebaseService().markArrived(
-        _incomingRideId,
-        currentLat: _driverLocation.latitude,
-        currentLng: _driverLocation.longitude,
-      );
+      await FirebaseService().markArrived(_incomingRideId);
       HapticFeedback.mediumImpact();
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(

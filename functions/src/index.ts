@@ -6,6 +6,7 @@
 import * as admin from 'firebase-admin';
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import { onSchedule } from 'firebase-functions/v2/scheduler';
+import { onDocumentUpdated } from 'firebase-functions/v2/firestore';
 
 // Initialize Firebase Admin SDK singleton
 if (!admin.apps.length) {
@@ -31,7 +32,7 @@ import {
   executeVerifyPinAndStartTrip,
   RequestRidePayload,
 } from './rides.js';
-import { executeRadiusExpansionAndExpirationSweep } from './triggers.js';
+import { executeRadiusExpansionAndExpirationSweep, syncDriverAvailability } from './triggers.js';
 
 // ============================================================================
 // 1. AUTHENTICATION & ONBOARDING
@@ -87,9 +88,9 @@ export const markArrived = onCall({ region: 'europe-west1' }, async (request) =>
   }
 
   try {
-    const { rideId, currentLat, currentLng } = request.data;
+    const { rideId } = request.data;
     if (!rideId) throw new Error('RIDE_ID_REQUIRED');
-    return await executeMarkArrived(request.auth.uid, rideId, currentLat, currentLng);
+    return await executeMarkArrived(request.auth.uid, rideId);
   } catch (error: any) {
     throw new HttpsError('failed-precondition', error.message);
   }
@@ -242,3 +243,36 @@ export const expireStaleRidesAndOffers = onSchedule({
   const result = await executeRadiusExpansionAndExpirationSweep();
   console.log('[Dispatcher Sweep]', result);
 });
+
+// ============================================================================
+// 5. EVENTUAL CONSISTENCY FIRESTORE TRIGGER (Requirement I & H)
+// Guarantees driver availability & rider reservation consistency across RTDB & Firestore
+// ============================================================================
+
+export const onRideStatusUpdated = onDocumentUpdated(
+  { document: 'rides/{rideId}', region: 'europe-west1' },
+  async (event) => {
+    const beforeData = event.data?.before.data();
+    const afterData = event.data?.after.data();
+    if (!beforeData || !afterData) return;
+
+    if (beforeData.status !== afterData.status) {
+      if (['completed', 'cancelled', 'expired'].includes(afterData.status)) {
+        const driverId = afterData.driver_id;
+        if (driverId) {
+          await syncDriverAvailability(driverId, false, null);
+        }
+        const riderId = afterData.rider_id;
+        if (riderId) {
+          try {
+            await admin.firestore().collection('rider_reservations').doc(riderId).set({
+              status: 'idle',
+              ride_id: null,
+              updated_at: admin.firestore.FieldValue.serverTimestamp(),
+            });
+          } catch (_) {}
+        }
+      }
+    }
+  }
+);

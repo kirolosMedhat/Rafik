@@ -87,18 +87,24 @@ export async function findNearbyEligibleDrivers(
  */
 export async function createAndDispatchOffers(
   ride: RideDocument,
-  radiusKm: number
-): Promise<number> {
+  radiusKm: number,
+  excludedDriverIds: string[] = []
+): Promise<{ count: number; dispatchedDriverIds: string[] }> {
   const settings = await getPlatformSettings();
-  const candidates = await findNearbyEligibleDrivers(
+  const allCandidates = await findNearbyEligibleDrivers(
     ride.pickup_lat,
     ride.pickup_lng,
     ride.tier,
     radiusKm
   );
 
+  // Filter out drivers who already received an offer for this ride
+  const candidates = allCandidates.filter(
+    (c) => !excludedDriverIds.includes(c.driver_id)
+  );
+
   if (candidates.length === 0) {
-    return 0;
+    return { count: 0, dispatchedDriverIds: [] };
   }
 
   const db = admin.firestore();
@@ -108,6 +114,7 @@ export async function createAndDispatchOffers(
 
   const offerIds: string[] = [];
   const targetTokens: string[] = [];
+  const newlyDispatchedDriverIds: string[] = [];
 
   for (const candidate of candidates) {
     const offerRef = db.collection('ride_offers').doc();
@@ -126,12 +133,22 @@ export async function createAndDispatchOffers(
     };
     batch.set(offerRef, offerData);
     offerIds.push(offerRef.id);
+    newlyDispatchedDriverIds.push(candidate.driver_id);
 
-    // Look up driver's FCM token from active sessions in RTDB
+    // Look up driver's FCM token from RTDB or Firestore active_sessions
     try {
+      let token: string | null = null;
       const sessionSnap = await admin.database().ref(`active_sessions/${candidate.driver_id}/fcm_token`).once('value');
-      const token = sessionSnap.val();
-      if (typeof token === 'string' && token.length > 0) {
+      if (sessionSnap.exists() && typeof sessionSnap.val() === 'string') {
+        token = sessionSnap.val();
+      }
+      if (!token) {
+        const firestoreSession = await db.collection('active_sessions').doc(candidate.driver_id).get();
+        if (firestoreSession.exists && typeof firestoreSession.data()?.fcm_token === 'string') {
+          token = firestoreSession.data()?.fcm_token;
+        }
+      }
+      if (token && typeof token === 'string' && token.length > 0) {
         targetTokens.push(token);
       }
     } catch (_) {}
@@ -169,5 +186,5 @@ export async function createAndDispatchOffers(
     }
   }
 
-  return offerIds.length;
+  return { count: offerIds.length, dispatchedDriverIds: newlyDispatchedDriverIds };
 }

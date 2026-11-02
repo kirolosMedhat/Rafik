@@ -3,10 +3,12 @@
  * Condition 3 compliant: Clients cannot tamper with pricing, assignment, or PIN verification.
  */
 import * as admin from 'firebase-admin';
+import * as crypto from 'crypto';
 import { getPlatformSettings } from './config.js';
 import { createAndDispatchOffers } from './dispatch.js';
 import { computeAuthoritativeFare } from './pricing.js';
 import { approximateRoadDistanceKm, haversineDistanceKm } from './spatial.js';
+import { syncDriverAvailability } from './triggers.js';
 /**
  * Server-Authoritative Ride Creation & 3 KM Dispatch Initiation
  */
@@ -22,33 +24,27 @@ export async function executeRequestRide(callerUid, payload) {
     if (!userData?.is_active) {
         throw new Error('ACCOUNT_DISABLED: Account is deactivated.');
     }
-    // 2. Prevent Multiple Concurrent Active Rides
-    const activeRideQuery = await db.collection('rides')
-        .where('rider_id', '==', callerUid)
-        .where('status', 'in', ['requested', 'accepted', 'arrived', 'in_progress'])
-        .limit(1)
-        .get();
-    if (!activeRideQuery.empty) {
-        throw new Error('ACTIVE_RIDE_EXISTS: You already have an active ride request in progress.');
-    }
-    // 3. Rafik Girl Tier Restriction
+    // 2. Rafik Girl Tier Restriction
     if (payload.tier === 'rafik_girl') {
         if (userData?.gender !== 'female' || userData?.gender_verified !== true) {
             throw new Error('RAFIK_GIRL_UNAUTHORIZED: Rafik Girl is restricted to verified female passengers.');
         }
     }
-    // 4. Server-Authoritative Distance & Fare Calculation
+    // 3. Server-Authoritative Distance & Fare Calculation
     const distanceKm = approximateRoadDistanceKm(payload.pickup_lat, payload.pickup_lng, payload.dropoff_lat, payload.dropoff_lng, settings.pricing.cairo_traffic_multiplier);
     if (distanceKm < 0.2) {
         throw new Error('TRIP_TOO_SHORT: Trip distance is too short.');
     }
     const fareResult = await computeAuthoritativeFare(distanceKm, payload.tier);
-    // 5. Generate Cryptographic 4-Digit PIN
-    const randomPin = Math.floor(1000 + Math.random() * 9000).toString();
-    // 6. Write Ride and Isolated PIN Documents
+    // 4. Cryptographic 4-Digit PIN Generation (Requirement C: crypto.randomInt(0, 10000))
+    const pinNum = crypto.randomInt(0, 10000);
+    const randomPin = pinNum.toString().padStart(4, '0');
+    // 5. Timings & Expansion Checkpoints
     const rideRef = db.collection('rides').doc();
     const ttlMs = settings.dispatch.ride_request_ttl_seconds * 1000;
+    const expansionIntervalMs = (settings.dispatch.expansion_interval_seconds || 30) * 1000;
     const expiresAt = admin.firestore.Timestamp.fromMillis(Date.now() + ttlMs);
+    const nextExpansionAt = admin.firestore.Timestamp.fromMillis(Date.now() + expansionIntervalMs);
     const rideData = {
         ride_id: rideRef.id,
         rider_id: callerUid,
@@ -73,6 +69,10 @@ export async function executeRequestRide(callerUid, payload) {
         platform_fee_egp: fareResult.platform_fee_egp,
         payment_method: payload.payment_method ?? 'cash',
         attempts: 0,
+        dispatch_stage: 1,
+        current_radius: settings.dispatch.initial_radius_km,
+        next_expansion_at: nextExpansionAt,
+        dispatched_driver_ids: [],
         requested_at: admin.firestore.FieldValue.serverTimestamp(),
         expires_at: expiresAt,
     };
@@ -82,18 +82,34 @@ export async function executeRequestRide(callerUid, payload) {
         is_locked: false,
         created_at: admin.firestore.FieldValue.serverTimestamp(),
     };
-    const batch = db.batch();
-    batch.set(rideRef, rideData);
-    batch.set(rideRef.collection('security').doc('pin_data'), pinData);
-    await batch.commit();
+    // 6. Atomic Active Ride Reservation & Document Creation (Requirement H)
+    const riderReservationRef = db.collection('rider_reservations').doc(callerUid);
+    await db.runTransaction(async (transaction) => {
+        const reservationSnap = await transaction.get(riderReservationRef);
+        if (reservationSnap.exists && reservationSnap.data()?.status === 'active') {
+            throw new Error('ACTIVE_RIDE_EXISTS: You already have an active ride request in progress.');
+        }
+        transaction.set(riderReservationRef, {
+            status: 'active',
+            ride_id: rideRef.id,
+            updated_at: admin.firestore.FieldValue.serverTimestamp(),
+        });
+        transaction.set(rideRef, rideData);
+        transaction.set(rideRef.collection('security').doc('pin_data'), pinData);
+    });
     // 7. Dispatch Initial 3 KM Offers
-    const offersCount = await createAndDispatchOffers(rideData, settings.dispatch.initial_radius_km);
+    const dispatchResult = await createAndDispatchOffers(rideData, settings.dispatch.initial_radius_km, []);
+    if (dispatchResult.dispatchedDriverIds.length > 0) {
+        await rideRef.update({
+            dispatched_driver_ids: dispatchResult.dispatchedDriverIds,
+        });
+    }
     return {
         ride_id: rideRef.id,
         fare_egp: fareResult.fare_egp,
         distance_km: fareResult.distance_km,
         pin: randomPin, // Returned exclusively to the passenger
-        offers_dispatched: offersCount,
+        offers_dispatched: dispatchResult.count,
     };
 }
 /**
@@ -208,9 +224,10 @@ export async function executeAcceptRide(driverUid, offerId) {
     return { success: true, ride_id: result.rideId };
 }
 /**
- * Driver Arrival at Pickup Location
+ * Driver Arrival at Pickup Location (Requirement D: Server-Authoritative RTDB Geofence)
+ * Does NOT trust client coordinates; reads fresh telemetry from RTDB directly.
  */
-export async function executeMarkArrived(driverUid, rideId, currentLat, currentLng) {
+export async function executeMarkArrived(driverUid, rideId) {
     const db = admin.firestore();
     const settings = await getPlatformSettings();
     const rideRef = db.collection('rides').doc(rideId);
@@ -224,12 +241,30 @@ export async function executeMarkArrived(driverUid, rideId, currentLat, currentL
     if (ride?.status !== 'accepted') {
         throw new Error('INVALID_STATE: Ride must be in accepted status.');
     }
-    // Geofence verification: Check driver is within max arrival threshold
-    if (typeof currentLat === 'number' && typeof currentLng === 'number') {
-        const distMeters = haversineDistanceKm(currentLat, currentLng, ride.pickup_lat, ride.pickup_lng) * 1000;
-        if (distMeters > settings.safety.max_arrival_distance_meters) {
-            throw new Error(`ARRIVAL_GEOFENCE_FAILED: You are too far from the pickup point (${Math.round(distMeters)}m away).`);
-        }
+    // 1. Fetch live telemetry coordinates directly from RTDB using Admin SDK
+    const rtdb = admin.database();
+    const telemetrySnap = await rtdb.ref(`driver_locations/${driverUid}`).once('value');
+    if (!telemetrySnap.exists()) {
+        throw new Error('MISSING_TELEMETRY: No live location telemetry found for driver.');
+    }
+    const telemetry = telemetrySnap.val();
+    if (typeof telemetry?.lat !== 'number' || typeof telemetry?.lng !== 'number') {
+        throw new Error('INVALID_TELEMETRY: Driver coordinates are missing or invalid.');
+    }
+    // 2. Validate Telemetry Timestamp Freshness
+    const now = Date.now();
+    const heartbeatLimitMs = (settings.dispatch.driver_heartbeat_timeout_seconds || 60) * 1000;
+    if (typeof telemetry.updated_at !== 'number' || (now - telemetry.updated_at) > heartbeatLimitMs) {
+        throw new Error('STALE_TELEMETRY: Driver telemetry is outdated or stale. Cannot verify arrival.');
+    }
+    if (telemetry.updated_at > now + 5000) {
+        throw new Error('INVALID_TELEMETRY_TIMESTAMP: Future timestamp detected in telemetry.');
+    }
+    // 3. Unconditionally Enforce Server-Authoritative Arrival Geofence
+    const distMeters = haversineDistanceKm(telemetry.lat, telemetry.lng, ride.pickup_lat, ride.pickup_lng) * 1000;
+    const maxAllowedMeters = settings.safety.max_arrival_distance_meters || 500;
+    if (distMeters > maxAllowedMeters) {
+        throw new Error(`ARRIVAL_GEOFENCE_FAILED: Driver is ${Math.round(distMeters)}m from pickup (maximum allowed: ${maxAllowedMeters}m).`);
     }
     await rideRef.update({
         status: 'arrived',
@@ -242,6 +277,10 @@ export async function executeMarkArrived(driverUid, rideId, currentLat, currentL
  * Condition 3 compliant: Attempt limit enforced without transaction rollback.
  */
 export async function executeVerifyPinAndStartTrip(driverUid, rideId, inputPin) {
+    // Validate PIN format on backend (Requirement C)
+    if (!inputPin || !/^\d{4}$/.test(inputPin.trim())) {
+        throw new Error('INVALID_PIN_FORMAT: PIN must be exactly 4 numeric digits.');
+    }
     const db = admin.firestore();
     const settings = await getPlatformSettings();
     const maxAttempts = settings.safety.max_pin_attempts;
@@ -294,7 +333,7 @@ export async function executeVerifyPinAndStartTrip(driverUid, rideId, inputPin) 
     });
 }
 /**
- * Trip Completion & Wallet Ledger Settlement
+ * Trip Completion & Wallet Ledger Settlement (Idempotent & Safe Availability Sync)
  */
 export async function executeCompleteRide(driverUid, rideId) {
     const db = admin.firestore();
@@ -306,6 +345,9 @@ export async function executeCompleteRide(driverUid, rideId) {
         const ride = rideSnap.data();
         if (ride.driver_id !== driverUid) {
             throw new Error('UNAUTHORIZED: Caller is not the assigned driver.');
+        }
+        if (ride.status === 'completed') {
+            throw new Error('ALREADY_COMPLETED: Ride has already been completed.');
         }
         if (ride.status !== 'in_progress') {
             throw new Error('INVALID_STATE: Ride must be in progress to complete.');
@@ -338,20 +380,21 @@ export async function executeCompleteRide(driverUid, rideId) {
             status: 'settled',
             created_at: admin.firestore.FieldValue.serverTimestamp(),
         });
-        return { fare, earnings };
-    });
-    // Free driver in RTDB and clear active_rider_id
-    try {
-        await admin.database().ref(`driver_locations/${driverUid}`).update({
-            is_busy: false,
-            active_rider_id: null,
+        // 4. Release Rider Active Reservation (Requirement H)
+        const riderReservationRef = db.collection('rider_reservations').doc(ride.rider_id);
+        transaction.set(riderReservationRef, {
+            status: 'idle',
+            ride_id: null,
+            updated_at: admin.firestore.FieldValue.serverTimestamp(),
         });
-    }
-    catch (_) { }
+        return { fare, earnings, riderId: ride.rider_id };
+    });
+    // 5. Reliable RTDB availability synchronization with retry and outbox fallback (Requirement I)
+    await syncDriverAvailability(driverUid, false, null);
     return { success: true, fare_egp: result.fare, driver_earnings_egp: result.earnings };
 }
 /**
- * Ride Cancellation
+ * Ride Cancellation (Idempotent & Safe Availability Sync)
  */
 export async function executeCancelRide(callerUid, rideId, reason) {
     const db = admin.firestore();
@@ -381,60 +424,95 @@ export async function executeCancelRide(callerUid, rideId, reason) {
             current_ride_id: null,
         });
     }
+    // Release Rider Reservation (Requirement H)
+    batch.set(db.collection('rider_reservations').doc(ride.rider_id), {
+        status: 'idle',
+        ride_id: null,
+        updated_at: admin.firestore.FieldValue.serverTimestamp(),
+    });
     await batch.commit();
+    // Reliable RTDB availability sync with retry & outbox (Requirement I)
     if (ride?.driver_id) {
-        try {
-            await admin.database().ref(`driver_locations/${ride.driver_id}`).update({
-                is_busy: false,
-                active_rider_id: null,
-            });
-        }
-        catch (_) { }
+        await syncDriverAvailability(ride.driver_id, false, null);
     }
     return { success: true };
 }
 /**
- * Mutual Rating Submission
+ * Mutual Rating Submission (Requirement G: Atomic Transaction & Integrity)
  */
 export async function executeRateRide(callerUid, rideId, rating, review) {
-    if (rating < 1 || rating > 5)
-        throw new Error('INVALID_RATING: Must be between 1 and 5 stars.');
+    // 1. Validate rating bounds (finite number between 1.0 and 5.0)
+    if (typeof rating !== 'number' || !Number.isFinite(rating) || rating < 1.0 || rating > 5.0) {
+        throw new Error('INVALID_RATING: Rating must be a finite number between 1.0 and 5.0.');
+    }
     const db = admin.firestore();
     const rideRef = db.collection('rides').doc(rideId);
-    const rideSnap = await rideRef.get();
-    if (!rideSnap.exists)
-        throw new Error('RIDE_NOT_FOUND');
-    const ride = rideSnap.data();
-    const isRider = ride?.rider_id === callerUid;
-    const isDriver = ride?.driver_id === callerUid;
-    if (!isRider && !isDriver)
-        throw new Error('UNAUTHORIZED');
-    if (isRider) {
-        // Rider rates driver
-        await rideRef.update({
-            driver_rating: rating,
-            review: review ?? null,
-        });
-        if (ride?.driver_id) {
-            // Recompute driver rating average
-            await updateRunningAverage(db.collection('drivers').doc(ride.driver_id), 'rating_avg', rating);
+    const ratingRecordRef = rideRef.collection('ratings').doc(callerUid);
+    return db.runTransaction(async (transaction) => {
+        const rideSnap = await transaction.get(rideRef);
+        if (!rideSnap.exists)
+            throw new Error('RIDE_NOT_FOUND: Ride does not exist.');
+        const ride = rideSnap.data();
+        // 2. Ratings only permitted after ride completion
+        if (ride.status !== 'completed') {
+            throw new Error('INVALID_STATE: Ratings are only permitted after ride completion.');
         }
-    }
-    else {
-        // Driver rates rider
-        await rideRef.update({
-            rider_rating: rating,
+        // 3. Only ride participants may rate
+        const isRider = ride.rider_id === callerUid;
+        const isDriver = ride.driver_id === callerUid;
+        if (!isRider && !isDriver) {
+            throw new Error('UNAUTHORIZED: Only ride participants may submit ratings.');
+        }
+        // 4. One rating per participant per ride (prevent duplicate manipulation)
+        const existingRatingSnap = await transaction.get(ratingRecordRef);
+        if (existingRatingSnap.exists) {
+            throw new Error('ALREADY_RATED: You have already submitted a rating for this ride.');
+        }
+        const targetUserId = isRider ? ride.driver_id : ride.rider_id;
+        if (!targetUserId)
+            throw new Error('TARGET_NOT_FOUND: Target user not found.');
+        const targetUserRef = isRider
+            ? db.collection('drivers').doc(targetUserId)
+            : db.collection('users').doc(targetUserId);
+        const targetUserSnap = await transaction.get(targetUserRef);
+        if (!targetUserSnap.exists)
+            throw new Error('TARGET_USER_NOT_FOUND: Profile not found.');
+        const targetData = targetUserSnap.data() || {};
+        const currentRating = typeof targetData.rating_avg === 'number' ? targetData.rating_avg : 5.0;
+        const currentTotalRatings = typeof targetData.total_ratings === 'number' ? targetData.total_ratings : 0;
+        // 5. Rolling average calculation
+        const newTotalRatings = currentTotalRatings + 1;
+        const previousPoints = currentRating * currentTotalRatings;
+        const newAverage = Number(((previousPoints + rating) / newTotalRatings).toFixed(2));
+        // Record individual rating document
+        transaction.set(ratingRecordRef, {
+            rater_id: callerUid,
+            target_id: targetUserId,
+            role: isRider ? 'rider' : 'driver',
+            rating: rating,
+            review: review ?? null,
+            created_at: admin.firestore.FieldValue.serverTimestamp(),
         });
-        await updateRunningAverage(db.collection('users').doc(ride?.rider_id), 'rating_avg', rating);
-    }
-    return { success: true };
-}
-async function updateRunningAverage(docRef, fieldName, newRating) {
-    const snap = await docRef.get();
-    if (!snap.exists)
-        return;
-    const currentAvg = Number(snap.data()?.[fieldName] ?? 5.0);
-    const updatedAvg = Math.round(((currentAvg * 9 + newRating) / 10) * 100) / 100;
-    await docRef.update({ [fieldName]: updatedAvg });
+        // Update ride document
+        if (isRider) {
+            transaction.update(rideRef, {
+                driver_rating: rating,
+                rider_rated: true,
+                rider_review: review ?? null,
+            });
+        }
+        else {
+            transaction.update(rideRef, {
+                rider_rating: rating,
+                driver_rated: true,
+            });
+        }
+        // Update target user document rolling average
+        transaction.update(targetUserRef, {
+            rating_avg: newAverage,
+            total_ratings: newTotalRatings,
+        });
+        return { success: true };
+    });
 }
 //# sourceMappingURL=rides.js.map

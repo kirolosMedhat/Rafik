@@ -149,42 +149,19 @@ service cloud.firestore {
     // 6. Rides Collection (/rides/{rideId})
     // ===============================================================
     match /rides/{rideId} {
-      // Read: Rider, Assigned Driver, Candidate Approved Drivers (when requested), or Admin
+      // Read: ONLY Rider, Assigned Driver, or Admin (Requirement B: No broad requested-ride read access for drivers)
+      // Drivers discover rides exclusively through their targeted /ride_offers documents
       allow read: if isAuthenticated() && (
         resource.data.rider_id == request.auth.uid ||
         resource.data.driver_id == request.auth.uid ||
-        (resource.data.status == 'requested' && isApprovedDriver()) ||
         isAdmin()
       );
 
-      // Create: Rider can create a ride request with status 'requested' and unassigned driver,
-      // OR Cloud Functions via Admin SDK creates it authoritatively.
-      allow create: if isAuthenticated() && (
-        isAdmin() ||
-        (
-          request.resource.data.rider_id == request.auth.uid &&
-          request.resource.data.status == 'requested' &&
-          request.resource.data.driver_id == null &&
-          request.resource.data.attempts == 0 &&
-          isRecent(request.resource.data.requested_at)
-        )
-      );
+      // Create: Deny client creation of authoritative ride documents. Cloud Functions / Admin SDK only (Requirement B).
+      allow create: if false;
 
-      // Update:
-      // Client updates strictly limited:
-      // - Rider can cancel their unassigned/accepted ride before trip starts
-      // - All other state transitions (accept, arrive, start, complete, fare calculation)
-      //   MUST be performed via trusted Cloud Functions / Admin SDK
-      allow update: if isAdmin() || (
-        request.auth.uid == resource.data.rider_id &&
-        resource.data.status in ['requested', 'accepted', 'arrived'] &&
-        request.resource.data.status == 'cancelled' &&
-        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-          'status', 'cancelled_by', 'cancellation_reason', 'cancelled_at'
-        ])
-      );
-
-      allow delete: if isAdmin();
+      // Update, Delete: Admin only. All client operations (accept, arrive, pin, complete, cancel, rate) via Cloud Functions.
+      allow update, delete: if isAdmin();
 
       // 6.1 Messages Subcollection (/rides/{rideId}/messages/{messageId})
       match /messages/{messageId} {
@@ -211,6 +188,16 @@ service cloud.firestore {
           isAdmin()
         );
         allow write: if false; // Cloud Functions / Admin SDK only
+      }
+
+      // 6.3 Ratings Subcollection (/rides/{rideId}/ratings/{raterId})
+      match /ratings/{raterId} {
+        allow read: if isAuthenticated() && (
+          get(/databases/$(database)/documents/rides/$(rideId)).data.rider_id == request.auth.uid ||
+          get(/databases/$(database)/documents/rides/$(rideId)).data.driver_id == request.auth.uid ||
+          isAdmin()
+        );
+        allow write: if false; // Server-authoritative via rateRide Cloud Function
       }
     }
 
@@ -294,6 +281,22 @@ service cloud.firestore {
         request.resource.data.status == 'active' &&
         isRecent(request.resource.data.created_at);
       allow update, delete: if isAdmin();
+    }
+
+    // ===============================================================
+    // 14. Active Sessions (/active_sessions/{userId}) - Requirement F
+    // ===============================================================
+    match /active_sessions/{userId} {
+      allow read: if isOwner(userId) || isAdmin();
+      allow write: if isOwner(userId) || isAdmin();
+    }
+
+    // ===============================================================
+    // 15. Rider Reservations (/rider_reservations/{userId}) - Requirement H
+    // ===============================================================
+    match /rider_reservations/{userId} {
+      allow read: if isOwner(userId) || isAdmin();
+      allow write: if false; // Server-authoritative via Cloud Functions
     }
 
   }

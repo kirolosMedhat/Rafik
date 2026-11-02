@@ -14,12 +14,13 @@ export const DEFAULT_PLATFORM_SETTINGS = {
         cairo_traffic_multiplier: 1.25,
         platform_commission_rate: 0.0, // 0% platform commission on promotional trips
         night_multiplier: 1.0,
-        rafik_girl_premium_multiplier: 1.0,
+        rafik_girl_premium_multiplier: 1.10,
     },
     dispatch: {
         initial_radius_km: 3.0, // 3 KM initial matching radius confirmed by architecture decision
         expanded_radius_km: 5.0,
         max_radius_km: 7.0,
+        expansion_interval_seconds: 30,
         offer_timeout_seconds: 30,
         ride_request_ttl_seconds: 120,
         max_candidate_drivers: 10,
@@ -58,6 +59,7 @@ export async function getPlatformSettings(forceRefresh = false) {
                     initial_radius_km: Number(data?.dispatch?.initial_radius_km ?? DEFAULT_PLATFORM_SETTINGS.dispatch.initial_radius_km),
                     expanded_radius_km: Number(data?.dispatch?.expanded_radius_km ?? DEFAULT_PLATFORM_SETTINGS.dispatch.expanded_radius_km),
                     max_radius_km: Number(data?.dispatch?.max_radius_km ?? DEFAULT_PLATFORM_SETTINGS.dispatch.max_radius_km),
+                    expansion_interval_seconds: Number(data?.dispatch?.expansion_interval_seconds ?? DEFAULT_PLATFORM_SETTINGS.dispatch.expansion_interval_seconds),
                     offer_timeout_seconds: Number(data?.dispatch?.offer_timeout_seconds ?? DEFAULT_PLATFORM_SETTINGS.dispatch.offer_timeout_seconds),
                     ride_request_ttl_seconds: Number(data?.dispatch?.ride_request_ttl_seconds ?? DEFAULT_PLATFORM_SETTINGS.dispatch.ride_request_ttl_seconds),
                     max_candidate_drivers: Number(data?.dispatch?.max_candidate_drivers ?? DEFAULT_PLATFORM_SETTINGS.dispatch.max_candidate_drivers),

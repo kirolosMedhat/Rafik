@@ -28,8 +28,9 @@ export async function findNearbyEligibleDrivers(pickupLat, pickupLng, tier, radi
         if (loc.status && loc.status !== 'approved')
             continue;
         // 2. Verify recent telemetry heartbeat (server-authoritative freshness)
-        if (!loc.updated_at || typeof loc.updated_at !== 'number')
+        if (!loc.updated_at || typeof loc.updated_at !== 'number') {
             continue;
+        }
         // Reject future timestamps (> 5s clock skew buffer) and stale telemetry (> heartbeatLimitMs)
         if (loc.updated_at > now + 5000 || (now - loc.updated_at > heartbeatLimitMs)) {
             continue;
@@ -61,11 +62,13 @@ export async function findNearbyEligibleDrivers(pickupLat, pickupLng, tier, radi
 /**
  * Creates individual targeted ride offers in Firestore and dispatches FCM alerts.
  */
-export async function createAndDispatchOffers(ride, radiusKm) {
+export async function createAndDispatchOffers(ride, radiusKm, excludedDriverIds = []) {
     const settings = await getPlatformSettings();
-    const candidates = await findNearbyEligibleDrivers(ride.pickup_lat, ride.pickup_lng, ride.tier, radiusKm);
+    const allCandidates = await findNearbyEligibleDrivers(ride.pickup_lat, ride.pickup_lng, ride.tier, radiusKm);
+    // Filter out drivers who already received an offer for this ride
+    const candidates = allCandidates.filter((c) => !excludedDriverIds.includes(c.driver_id));
     if (candidates.length === 0) {
-        return 0;
+        return { count: 0, dispatchedDriverIds: [] };
     }
     const db = admin.firestore();
     const batch = db.batch();
@@ -73,6 +76,7 @@ export async function createAndDispatchOffers(ride, radiusKm) {
     const expiresAt = admin.firestore.Timestamp.fromMillis(Date.now() + offerTtlMs);
     const offerIds = [];
     const targetTokens = [];
+    const newlyDispatchedDriverIds = [];
     for (const candidate of candidates) {
         const offerRef = db.collection('ride_offers').doc();
         const offerData = {
@@ -90,11 +94,21 @@ export async function createAndDispatchOffers(ride, radiusKm) {
         };
         batch.set(offerRef, offerData);
         offerIds.push(offerRef.id);
-        // Look up driver's FCM token from active sessions in RTDB
+        newlyDispatchedDriverIds.push(candidate.driver_id);
+        // Look up driver's FCM token from RTDB or Firestore active_sessions
         try {
+            let token = null;
             const sessionSnap = await admin.database().ref(`active_sessions/${candidate.driver_id}/fcm_token`).once('value');
-            const token = sessionSnap.val();
-            if (typeof token === 'string' && token.length > 0) {
+            if (sessionSnap.exists() && typeof sessionSnap.val() === 'string') {
+                token = sessionSnap.val();
+            }
+            if (!token) {
+                const firestoreSession = await db.collection('active_sessions').doc(candidate.driver_id).get();
+                if (firestoreSession.exists && typeof firestoreSession.data()?.fcm_token === 'string') {
+                    token = firestoreSession.data()?.fcm_token;
+                }
+            }
+            if (token && typeof token === 'string' && token.length > 0) {
                 targetTokens.push(token);
             }
         }
@@ -131,6 +145,6 @@ export async function createAndDispatchOffers(ride, radiusKm) {
             console.warn('[Dispatch] FCM broadcast note:', pushError);
         }
     }
-    return offerIds.length;
+    return { count: offerIds.length, dispatchedDriverIds: newlyDispatchedDriverIds };
 }
 //# sourceMappingURL=dispatch.js.map

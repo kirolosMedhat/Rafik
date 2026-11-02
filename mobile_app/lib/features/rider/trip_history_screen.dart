@@ -14,49 +14,7 @@ class _TripHistoryScreenState extends State<TripHistoryScreen> {
   bool _isLoading = true;
   List<Map<String, dynamic>> _trips = [];
 
-  // Seeded Egyptian rides for instant demo display
-  final List<Map<String, dynamic>> _demoTrips = [
-    {
-      'id': 'RIDE-1743019200',
-      'created_at': 'Today, 11:20 AM',
-      'pickup_address': 'Zamalek (26th July St)',
-      'dropoff_address': 'New Cairo (5th Settlement - AUC)',
-      'driver_name': 'Captain Yasmine El-Sayed',
-      'vehicle_info': 'Toyota Yaris (س ن ق 1 4 2 9)',
-      'distance_km': 28.4,
-      'fare_amount': 299.00,
-      'status': 'completed',
-      'payment_method': 'Cash',
-      'rating': 5.0,
-    },
-    {
-      'id': 'RIDE-1742918400',
-      'created_at': 'Yesterday, 04:45 PM',
-      'pickup_address': 'Korba Square (Heliopolis)',
-      'dropoff_address': 'Cairo International Airport (T3)',
-      'driver_name': 'Captain Nourhan Fahmy',
-      'vehicle_info': 'Hyundai Elantra (ق م د 3 9 1 2)',
-      'distance_km': 14.2,
-      'fare_amount': 157.00,
-      'status': 'completed',
-      'payment_method': 'InstaPay IPA',
-      'rating': 5.0,
-    },
-    {
-      'id': 'RIDE-1742817600',
-      'created_at': '24 Sep, 08:15 PM',
-      'pickup_address': 'Degla Square (Maadi)',
-      'dropoff_address': 'Tahrir Square (Downtown)',
-      'driver_name': 'Captain Dina Mansour',
-      'vehicle_info': 'Kia Cerato (ر ف ق 7 4 2 9)',
-      'distance_km': 16.7,
-      'fare_amount': 182.00,
-      'status': 'completed',
-      'payment_method': 'Cash',
-      'rating': 5.0,
-    },
-  ];
-
+  
   @override
   void initState() {
     super.initState();
@@ -67,7 +25,7 @@ class _TripHistoryScreenState extends State<TripHistoryScreen> {
     setState(() => _isLoading = true);
     final fetched = await FirebaseService().fetchUserTrips();
     setState(() {
-      _trips = fetched.isNotEmpty ? fetched : _demoTrips;
+      _trips = fetched;
       _isLoading = false;
     });
   }
@@ -194,7 +152,20 @@ class _TripHistoryScreenState extends State<TripHistoryScreen> {
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator(color: AppTheme.roseGold))
-          : ListView.builder(
+          : _trips.isEmpty
+              ? const Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.history_rounded, size: 64, color: AppTheme.textSecondary),
+                      SizedBox(height: 16),
+                      Text('No trips yet', style: TextStyle(color: AppTheme.textPrimary, fontSize: 18, fontWeight: FontWeight.bold)),
+                      SizedBox(height: 8),
+                      Text('Your completed rides will appear here', style: TextStyle(color: AppTheme.textSecondary, fontSize: 14)),
+                    ],
+                  ),
+                )
+              : ListView.builder(
               padding: const EdgeInsets.all(16),
               itemCount: _trips.length,
               itemBuilder: (context, index) {

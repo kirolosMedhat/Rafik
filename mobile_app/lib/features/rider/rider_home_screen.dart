@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../core/services/persistent_storage.dart';
 
@@ -154,8 +153,7 @@ class _RiderHomeScreenState extends State<RiderHomeScreen> {
   int _driverEtaMinutes = 3;
   Timer? _driverMovementTimer;
 
-  // Realtime Supabase Dispatch Channel
-  RealtimeChannel? _dispatchChannel;
+  // Realtime Dispatch & Ride State
   String _activeRideId = '';
 
   // Assigned driver data
@@ -187,7 +185,6 @@ class _RiderHomeScreenState extends State<RiderHomeScreen> {
   @override
   void dispose() {
     _driverMovementTimer?.cancel();
-    _dispatchChannel?.unsubscribe();
     _rtdbLocationSub?.cancel();
     _firebaseLocationSub?.cancel();
     _firebaseRideSub?.cancel();
@@ -203,7 +200,6 @@ class _RiderHomeScreenState extends State<RiderHomeScreen> {
   StreamSubscription? _rtdbLocationSub;
 
   void _subscribeToRide(String rideId) {
-    _dispatchChannel?.unsubscribe();
     _rtdbLocationSub?.cancel();
     _firebaseLocationSub?.cancel();
     _firebaseRideSub?.cancel();
@@ -321,47 +317,7 @@ class _RiderHomeScreenState extends State<RiderHomeScreen> {
     });
   }
 
-  /* void _legacySubscribeToDriverLocation(String driverId) { return; }
-  void _unused(String driverId) {
-    _firebaseLocationSub?.cancel();
-    _firebaseLocationSub = FirebaseService().streamDriverLocation(driverId).listen((snapshot) {
-      if (!snapshot.exists || !mounted) return;
-      final data = snapshot.data();
-      final lat = (data?['lat'] as num?)?.toDouble();
-      final lng = (data?['lng'] as num?)?.toDouble();
-      if (lat != null && lng != null) {
-        setState(() {
-          _driverLiveLocation = LatLng(lat, lng);
-        });
-      }
-    });
-
-    return; /* Supabase channel removed in Phase 2C - RTDB telemetry active
-    supabase.channel('rider-driver-loc-$driverId')
-      ..onPostgresChanges(
-        event: PostgresChangeEvent.all,
-        schema: 'public',
-        table: 'driver_locations',
-        filter: PostgresChangeFilter(
-          type: PostgresChangeFilterType.eq,
-          column: 'driver_id',
-          value: driverId,
-        ),
-        callback: (payload) {
-          final rec = payload.newRecord;
-          final heading = (rec['heading'] as num?)?.toDouble() ?? 0.0;
-          if (mounted) {
-            setState(() {
-              _driverHeading = heading;
-            });
-          }
-        },
-      )
-      ..subscribe();
-  }
-
-  */ */
-
+  
   /// Calculates real-world road distance and computes fare preview
   void _recalculateFare() {
     final distanceCalc = const Distance();
@@ -390,7 +346,7 @@ class _RiderHomeScreenState extends State<RiderHomeScreen> {
     HapticFeedback.mediumImpact();
 
     try {
-      final rideId = await FirebaseService().requestRide(
+      final requestResult = await FirebaseService().requestRide(
         tier: _selectedTier == RideTier.rafikGirl ? 'rafik_girl' : 'standard',
         pickupAddress: _pickupPlace.name,
         pickupLat: _pickupPlace.location.latitude,
@@ -404,8 +360,11 @@ class _RiderHomeScreenState extends State<RiderHomeScreen> {
       );
 
       if (!mounted) return;
-      setState(() => _activeRideId = rideId);
-      _subscribeToRide(rideId);
+      setState(() {
+        _activeRideId = requestResult.rideId;
+        _calculatedFare = requestResult.fareEgp; // Display actual server-returned upfront fare
+      });
+      _subscribeToRide(requestResult.rideId);
     } catch (e) {
       if (!mounted) return;
       setState(() => _rideState = RideState.idle);
@@ -1034,12 +993,18 @@ class _RiderHomeScreenState extends State<RiderHomeScreen> {
   }
 
   void _openChat() {
+    if (_activeRideId.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No active ride for chat.')),
+      );
+      return;
+    }
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
       builder: (_) => InRideChatSheet(
-        rideId: _activeRideId.isNotEmpty ? _activeRideId : 'demo-ride',
+        rideId: _activeRideId,
         myRole: 'rider',
         otherPartyName: _driverName,
         otherPartySubtitle: _vehicleInfo,
@@ -1071,11 +1036,12 @@ class _RiderHomeScreenState extends State<RiderHomeScreen> {
   }
 
   void _showRatingDialog() {
+    if (_activeRideId.isEmpty) return;
     showDialog(
       context: context,
       barrierDismissible: false,
       builder: (_) => RatingDialog(
-        rideId: _activeRideId.isNotEmpty ? _activeRideId : 'demo-ride',
+        rideId: _activeRideId,
         driverName: _driverName,
         vehicleInfo: _vehicleInfo,
         fareAmount: _calculatedFare,

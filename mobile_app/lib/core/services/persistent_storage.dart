@@ -1,11 +1,10 @@
 import 'dart:convert';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 
 /// Rafik Local Storage Service
 /// Caches UI preferences (language, theme, last used tier) and a read-through trip history cache.
-/// The Supabase PostgreSQL database remains the single authoritative source of truth.
+/// Cloud Firestore and Firebase Auth serve as the authoritative backend services.
 class PersistentStorage {
   static const String keyLanguage = 'rafik_language'; // 'en' or 'ar'
   static const String keyThemeMode = 'rafik_theme_mode'; // 'dark', 'black', 'light'
@@ -50,17 +49,7 @@ class PersistentStorage {
   }
 
   static Future<String> getUserGender() async {
-    final fbUser = FirebaseAuth.instance.currentUser;
-    if (fbUser != null) {
-      return 'female';
-    }
-    try {
-      final user = Supabase.instance.client.auth.currentUser;
-      final meta = user?.userMetadata;
-      return meta?['gender']?.toString() ?? 'female';
-    } catch (_) {
-      return 'female';
-    }
+    return 'female';
   }
 
   static Future<Map<String, dynamic>?> getUserSession() async {
@@ -74,27 +63,12 @@ class PersistentStorage {
         'gender': 'female',
       };
     }
-    try {
-      final user = Supabase.instance.client.auth.currentUser;
-      if (user == null) return null;
-      return {
-        'id': user.id,
-        'name': user.userMetadata?['full_name'] ?? 'Rafik User',
-        'phone': user.phone ?? '',
-        'role': user.userMetadata?['role'] ?? 'rider',
-        'gender': user.userMetadata?['gender'] ?? 'female',
-      };
-    } catch (_) {
-      return null;
-    }
+    return null;
   }
 
   static Future<void> clearSession() async {
     try {
       await FirebaseAuth.instance.signOut();
-    } catch (_) {}
-    try {
-      await Supabase.instance.client.auth.signOut();
     } catch (_) {}
     await clearCache();
   }

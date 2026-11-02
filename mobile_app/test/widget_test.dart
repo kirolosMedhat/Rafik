@@ -1,20 +1,20 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:rafik/core/services/supabase_service.dart';
+import 'package:rafik/core/services/firebase_service.dart';
 import 'package:rafik/main_rider.dart';
 import 'package:rafik/main_driver.dart';
 
 void main() {
   group('Rafik Fare Computation Engine', () {
     test('Calculates minimum fare floor (25 EGP) for short trips', () {
-      expect(SupabaseService.computeFarePreview(0.1), equals(25.0));
-      expect(SupabaseService.computeFarePreview(0.5), equals(25.0));
-      expect(SupabaseService.computeFarePreview(1.0), equals(25.0));
+      expect(FirebaseService.computeFarePreview(0.1), equals(25.0));
+      expect(FirebaseService.computeFarePreview(0.5), equals(25.0));
+      expect(FirebaseService.computeFarePreview(1.0), equals(25.0));
     });
 
     test('Calculates exact distance fare (15 + km * 10) for longer trips', () {
-      expect(SupabaseService.computeFarePreview(5.0), equals(65.0));
-      expect(SupabaseService.computeFarePreview(10.0), equals(115.0));
-      expect(SupabaseService.computeFarePreview(28.4), equals(299.0));
+      expect(FirebaseService.computeFarePreview(5.0), equals(65.0));
+      expect(FirebaseService.computeFarePreview(10.0), equals(115.0));
+      expect(FirebaseService.computeFarePreview(28.4), equals(299.0));
     });
   });
 

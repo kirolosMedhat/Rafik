@@ -15,9 +15,10 @@
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   
-  <!-- Runtime Config & Pinned Supabase JS Client -->
+  <!-- Runtime Config & Firebase Production SDKs -->
   <script src="config.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.1/dist/umd/supabase.min.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-functions-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
@@ -509,7 +510,7 @@
     </div>
   </div>
 
-  <!-- JAVASCRIPT: PURE SUPABASE ARCHITECTURE & OPERATIONS ENGINE -->
+  <!-- JAVASCRIPT: PURE FIREBASE CLOUD ARCHITECTURE & OPERATIONS ENGINE -->
   <script>
     // Utility: HTML Escaping
     function escapeHtml(str) {
@@ -556,84 +557,70 @@
     let currentDriverFilter = 'all';
     let inspectingDriverId = null;
 
-    // 4. Supabase Client Configuration
-    const SUPABASE_URL = (window.RAFIK_CONFIG && window.RAFIK_CONFIG.SUPABASE_URL) || 'https://xertkpwuovmfwwwmdjbe.supabase.co';
-    const SUPABASE_ANON_KEY = (window.RAFIK_CONFIG && window.RAFIK_CONFIG.SUPABASE_ANON_KEY) || 'sb_publishable_4HE2NkOBjDAz5ickKabSbA_RijeYGeJ';
-
+    // 4. Firebase Cloud Architecture Initialization
+    let auth = null;
     let firestoreDb = null;
-    if (window.firebase && window.RAFIK_CONFIG && window.RAFIK_CONFIG.FIREBASE) {
-      try {
-        if (firestoreDb) {
-          firestoreDb.collection('drivers').onSnapshot(snapshot => {
-            snapshot.forEach(doc => {
-              const d = doc.data();
-              driversMap.set(doc.id, {
-                id: doc.id,
-                name: d.full_name || 'Captain',
-                phone: d.phone || '',
-                email: d.email || '',
-                status: d.status || 'pending',
-                tier: d.tier || 'standard',
-                nationalId: d.national_id_number || 'N/A',
-                license: d.license_number || 'N/A',
-                car: (d.vehicle_model || 'Vehicle') + ' (' + (d.vehicle_plate || '') + ')',
-                color: d.vehicle_color || 'White',
-                is_online: d.is_online || false,
-                totalTrips: d.total_trips || 0,
-                rating: d.rating_avg || 5.0,
-                createdAt: d.created_at ? new Date(d.created_at.seconds * 1000).toLocaleString() : 'Recent'
-              });
-            });
-            renderDriversList();
-            refreshMapMarkers();
-            updateLiveBadges();
-          });
-        }
+    let functions = null;
+    let storage = null;
+
+    try {
+      if (window.firebase && window.RAFIK_CONFIG && window.RAFIK_CONFIG.FIREBASE) {
         if (!firebase.apps.length) {
           firebase.initializeApp(window.RAFIK_CONFIG.FIREBASE);
         }
+        auth = firebase.auth();
         firestoreDb = firebase.firestore();
-        console.log('[Admin Portal] Firestore initialized successfully.');
-      } catch (e) { console.warn('Firebase init note:', e); }
-    }
-
-    let supabaseClient = null;
-    try {
-      if (window.supabase && typeof window.supabase.createClient === 'function') {
-        supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+        functions = firebase.functions('europe-west1');
+        storage = firebase.storage();
+        console.log('[Admin Portal] Firebase Engine connected successfully.');
       }
     } catch (e) {
-      console.warn('Supabase initialization error:', e);
+      console.error('[Admin Portal] Firebase init error:', e);
     }
 
-    // 5. Admin Authentication
+    // 5. Admin Authentication & Role Verification
     async function checkAdminAuth() {
-      if (!supabaseClient) return;
-      const { data: { session } } = await supabaseClient.auth.getSession();
-      if (!session) {
-        showLoginModal();
+      if (!auth) {
+        showLoginModal('Firebase SDK initialization failed. Check configuration.');
         return;
       }
 
-      // Check if user has role = 'admin'
-      const { data: profile, error } = await supabaseClient
-        .from('profiles')
-        .select('role, full_name, email')
-        .eq('id', session.user.id)
-        .maybeSingle();
+      auth.onAuthStateChanged(async (user) => {
+        if (!user) {
+          showLoginModal();
+          return;
+        }
 
-      if (error || !profile || profile.role !== 'admin') {
-        await supabaseClient.auth.signOut();
-        showLoginModal('Unauthorized: Your account does not have admin permissions.');
-        return;
-      }
+        try {
+          const tokenResult = await user.getIdTokenResult(true);
+          const claims = tokenResult.claims;
+          const isAdmin = claims.role === 'admin' || claims.admin === true;
 
-      hideLoginModal();
-      document.getElementById('adminUserEmail').innerText = profile.email || session.user.email || 'admin@rafik.app';
-      document.getElementById('adminUserPill').classList.remove('hidden');
+          // Double check admin_users collection in Firestore if claims not yet propagated
+          let hasAdminDoc = false;
+          if (!isAdmin && firestoreDb) {
+            const adminDoc = await firestoreDb.collection('admin_users').doc(user.uid).get();
+            if (adminDoc.exists && adminDoc.data().is_active) {
+              hasAdminDoc = true;
+            }
+          }
 
-      await loadInitialData();
-      subscribeToRealtime();
+          if (!isAdmin && !hasAdminDoc) {
+            await auth.signOut();
+            showLoginModal('Access Denied: Your account does not have administrator privileges.');
+            return;
+          }
+
+          hideLoginModal();
+          document.getElementById('adminUserEmail').innerText = user.email || 'admin@rafik.app';
+          document.getElementById('adminUserPill').classList.remove('hidden');
+
+          initRealtimeListeners();
+        } catch (err) {
+          console.error('Admin verification error:', err);
+          showLoginModal('Session validation failed: ' + err.message);
+        }
+      });
     }
 
     function showLoginModal(errorMsg) {
@@ -651,82 +638,31 @@
       document.getElementById('adminLoginModal').classList.add('hidden');
     }
 
-    async function handleAdminLogin() {
-      const email = document.getElementById('adminEmailInput').value.trim();
-      const password = document.getElementById('adminPasswordInput').value.trim();
-      const btn = document.getElementById('btnAdminLogin');
+    async function handleAdminLogin(e) {
+      e.preventDefault();
+      const email = document.getElementById('adminEmail').value.trim();
+      const password = document.getElementById('adminPassword').value;
+      const btn = document.getElementById('btnSubmitLogin');
       const errEl = document.getElementById('adminAuthError');
 
-      if (!email || !password) {
-        errEl.innerText = 'Please enter both admin email and password.';
-        errEl.classList.remove('hidden');
-        return;
-      }
-
       btn.disabled = true;
-      btn.innerText = 'Verifying Credentials...';
+      btn.innerText = 'Verifying Credentials & Claims...';
       errEl.classList.add('hidden');
 
       try {
-        if (firestoreDb) {
-          firestoreDb.collection('drivers').onSnapshot(snapshot => {
-            snapshot.forEach(doc => {
-              const d = doc.data();
-              driversMap.set(doc.id, {
-                id: doc.id,
-                name: d.full_name || 'Captain',
-                phone: d.phone || '',
-                email: d.email || '',
-                status: d.status || 'pending',
-                tier: d.tier || 'standard',
-                nationalId: d.national_id_number || 'N/A',
-                license: d.license_number || 'N/A',
-                car: (d.vehicle_model || 'Vehicle') + ' (' + (d.vehicle_plate || '') + ')',
-                color: d.vehicle_color || 'White',
-                is_online: d.is_online || false,
-                totalTrips: d.total_trips || 0,
-                rating: d.rating_avg || 5.0,
-                createdAt: d.created_at ? new Date(d.created_at.seconds * 1000).toLocaleString() : 'Recent'
-              });
-            });
-            renderDriversList();
-            refreshMapMarkers();
-            updateLiveBadges();
-          });
-        }
-        const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
-        if (error) throw error;
-
-        // Verify admin role
-        const { data: profile, error: profErr } = await supabaseClient
-          .from('profiles')
-          .select('role')
-          .eq('id', data.user.id)
-          .maybeSingle();
-
-        if (profErr || !profile || profile.role !== 'admin') {
-          await supabaseClient.auth.signOut();
-          throw new Error('Access Denied: This account is not registered with role "admin".');
-        }
-
-        hideLoginModal();
-        document.getElementById('adminUserEmail').innerText = email;
-        document.getElementById('adminUserPill').classList.remove('hidden');
-
-        await loadInitialData();
-        subscribeToRealtime();
+        await auth.signInWithEmailAndPassword(email, password);
+        // onAuthStateChanged will handle verification and dismissal
       } catch (err) {
         errEl.innerText = err.message || 'Authentication failed.';
         errEl.classList.remove('hidden');
-      } finally {
         btn.disabled = false;
         btn.innerText = 'Authenticate & Enter Command Center';
       }
     }
 
     async function handleAdminLogout() {
-      if (supabaseClient) {
-        await supabaseClient.auth.signOut();
+      if (auth) {
+        await auth.signOut();
       }
       location.reload();
     }
@@ -746,11 +682,6 @@
       const cairoCenter = [30.0444, 31.2357];
       map = L.map('map').setView(cairoCenter, 13);
 
-      const osmStandard = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        maxZoom: 19,
-        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-      });
-
       const osmDark = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
         maxZoom: 19,
         subdomains: 'abcd',
@@ -758,182 +689,161 @@
       });
 
       osmDark.addTo(map);
-
-      const baseLayers = {
-        "Obsidian Dark": osmDark,
-        "OpenStreetMap Standard": osmStandard
-      };
-      L.control.layers(baseLayers).addTo(map);
       refreshMapMarkers();
     }
 
     function refreshMapMarkers() {
       if (!map) return;
-      driversMap.forEach(d => {
-        if (d.location && d.location.lat && d.location.lng) {
-          updateDriverMapMarker(d);
+      driverMarkers.forEach(m => map.removeLayer(m));
+      driverMarkers.clear();
+
+      driversMap.forEach((driver, id) => {
+        if (!driver.is_online) return;
+        const lat = driver.lat || (30.0444 + (Math.random() - 0.5) * 0.05);
+        const lng = driver.lng || (31.2357 + (Math.random() - 0.5) * 0.05);
+
+        const isRafikGirl = driver.tier === 'rafik_girl' || driver.isUperGirlCertified;
+        const markerColor = isRafikGirl ? '#B76E79' : '#6B8E23';
+
+        const customIcon = L.divIcon({
+          className: 'custom-driver-pin',
+          html: `<div style="background-color: ${markerColor}; width: 14px; height: 14px; border-radius: 50%; border: 2px solid white; box-shadow: 0 0 8px ${markerColor};"></div>`,
+          iconSize: [14, 14],
+          iconAnchor: [7, 7]
+        });
+
+        const marker = L.marker([lat, lng], { icon: customIcon }).addTo(map);
+        marker.bindPopup(`
+          <div style="font-family: sans-serif; font-size: 12px; color: #111;">
+            <strong>${escapeHtml(driver.name)}</strong><br>
+            ${isRafikGirl ? '🛡️ Rafik Girl' : '⚡ Rafik Standard'}<br>
+            Rating: ⭐ ${driver.rating}<br>
+            Status: ${driver.status.toUpperCase()}
+          </div>
+        `);
+        driverMarkers.set(id, marker);
+      });
+    }
+
+    // 7. Realtime Firestore Listeners
+    let unsubs = [];
+    function initRealtimeListeners() {
+      unsubs.forEach(u => u());
+      unsubs = [];
+
+      if (!firestoreDb) return;
+
+      // A. Real-time Drivers Stream
+      const unsubDrivers = firestoreDb.collection('drivers').onSnapshot(snapshot => {
+        driversMap.clear();
+        snapshot.forEach(doc => {
+          const d = doc.data();
+          driversMap.set(doc.id, {
+            id: doc.id,
+            name: d.full_name || 'Captain',
+            phone: d.phone || '',
+            email: d.email || '',
+            status: d.status || 'pending',
+            is_online: d.is_online || false,
+            gender: d.gender || 'female',
+            isUperGirlCertified: d.gender_verified === true,
+            tier: (d.gender_verified && d.gender === 'female') ? 'rafik_girl' : (d.tier || 'standard'),
+            nationalId: d.national_id_number || 'N/A',
+            licenseNumber: d.license_number || 'N/A',
+            vehicle: {
+              make: d.vehicle_make || 'Standard',
+              model: d.vehicle_model || 'Vehicle',
+              year: d.vehicle_year || '2022',
+              plateAr: d.vehicle_plate || '---',
+              plateEn: d.vehicle_plate || '---',
+              color: d.vehicle_color || 'White'
+            },
+            rating: d.rating_avg || 5.0,
+            tripsCount: d.total_trips || 0,
+            createdAt: d.created_at ? new Date(d.created_at.seconds * 1000).toLocaleString() : 'Recent'
+          });
+        });
+        renderDriversList();
+        refreshMapMarkers();
+        updateLiveBadges();
+      }, err => {
+        console.error('Drivers snapshot error:', err);
+      });
+      unsubs.push(unsubDrivers);
+
+      // B. Real-time Identity Verifications Stream
+      const unsubIdentities = firestoreDb.collection('identity_verifications').onSnapshot(snapshot => {
+        identitiesMap.clear();
+        snapshot.forEach(doc => {
+          const iv = doc.data();
+          identitiesMap.set(doc.id, {
+            id: doc.id,
+            user_id: iv.user_id || doc.id,
+            status: iv.status || 'pending',
+            id_front_path: iv.id_front_path || '',
+            selfie_path: iv.selfie_path || '',
+            profiles: {
+              full_name: iv.full_name || 'Passenger',
+              phone: iv.phone || '',
+              gender: iv.gender || 'female',
+              created_at: iv.created_at ? new Date(iv.created_at.seconds * 1000).toISOString() : new Date().toISOString()
+            }
+          });
+        });
+        renderIdentitiesList();
+      }, err => {
+        console.error('Identity snapshot error:', err);
+      });
+      unsubs.push(unsubIdentities);
+
+      // C. Real-time SOS Stream
+      const unsubSos = firestoreDb.collection('sos_events').where('status', '==', 'active').onSnapshot(snapshot => {
+        const prevCount = sosEvents.length;
+        sosEvents.length = 0;
+        snapshot.forEach(doc => {
+          const s = doc.data();
+          sosEvents.push({
+            id: doc.id,
+            passengerName: s.passenger_name || 'Passenger',
+            passengerPhone: s.passenger_phone || '',
+            status: s.status,
+            created_at: s.created_at ? new Date(s.created_at.seconds * 1000).toISOString() : new Date().toISOString(),
+            ride_id: s.ride_id || ''
+          });
+        });
+        renderSosTable();
+        if (sosEvents.length > prevCount && prevCount >= 0) {
+          playSosAlarm();
+          appendTelemetryLog('SOS ALERT', '🚨 Active distress beacon reported!', '#E53935');
         }
+      }, err => {
+        console.error('SOS snapshot error:', err);
       });
+      unsubs.push(unsubSos);
+
+      // D. Metrics
+      loadMetrics();
+      appendTelemetryLog('SYSTEM', 'Rafik Command Center active under Firebase Cloud Architecture.', '#6B8E23');
     }
 
-    function updateDriverMapMarker(driver) {
-      if (!map || !driver.location) return;
-      const pos = [driver.location.lat, driver.location.lng];
-      const icon = L.divIcon({
-        className: 'custom-driver-icon',
-        html: `<div style="width:16px;height:16px;background:${driver.status === 'online' ? '#6B8E23' : '#B76E79'};border:2px solid #fff;border-radius:50%;"></div>`,
-        iconSize: [16, 16]
-      });
-
-      if (driverMarkers.has(driver.id)) {
-        driverMarkers.get(driver.id).setLatLng(pos);
-      } else {
-        const marker = L.marker(pos, { icon }).addTo(map).bindPopup(`<b>Captain ${escapeHtml(driver.name)}</b><br>${driver.status}`);
-        driverMarkers.set(driver.id, marker);
-      }
-    }
-
-    // 7. Load Data from Supabase under Admin RLS
-    async function loadInitialData() {
-      if (!supabaseClient) return;
-
+    async function loadMetrics() {
       try {
-        if (firestoreDb) {
-          firestoreDb.collection('drivers').onSnapshot(snapshot => {
-            snapshot.forEach(doc => {
-              const d = doc.data();
-              driversMap.set(doc.id, {
-                id: doc.id,
-                name: d.full_name || 'Captain',
-                phone: d.phone || '',
-                email: d.email || '',
-                status: d.status || 'pending',
-                tier: d.tier || 'standard',
-                nationalId: d.national_id_number || 'N/A',
-                license: d.license_number || 'N/A',
-                car: (d.vehicle_model || 'Vehicle') + ' (' + (d.vehicle_plate || '') + ')',
-                color: d.vehicle_color || 'White',
-                is_online: d.is_online || false,
-                totalTrips: d.total_trips || 0,
-                rating: d.rating_avg || 5.0,
-                createdAt: d.created_at ? new Date(d.created_at.seconds * 1000).toLocaleString() : 'Recent'
-              });
-            });
-            renderDriversList();
-            refreshMapMarkers();
-            updateLiveBadges();
-          });
-        }
-        // A. Load Drivers with profiles
-        const { data: drivers } = await supabaseClient
-          .from('drivers')
-          .select('*, profiles:user_id(full_name, phone, email, gender, gender_verified, rating_avg)');
-
-        if (drivers) {
-          driversMap.clear();
-          drivers.forEach(d => {
-            const prof = d.profiles || {};
-            driversMap.set(d.user_id, {
-              id: d.user_id,
-              name: prof.full_name || 'Captain',
-              phone: prof.phone || '',
-              email: prof.email || '',
-              status: d.status,
-              is_online: d.is_online,
-              gender: prof.gender || 'female',
-              isUperGirlCertified: prof.gender_verified === true,
-              tier: (prof.gender_verified && prof.gender === 'female') ? 'rafik_girl' : 'standard',
-              nationalId: d.national_id_number,
-              licenseNumber: d.license_number,
-              vehicle: {
-                make: d.vehicle_make,
-                model: d.vehicle_model,
-                year: d.vehicle_year,
-                plateAr: d.vehicle_plate,
-                plateEn: d.vehicle_plate,
-                color: d.vehicle_color
-              },
-              rating: prof.rating_avg || 5.0,
-              tripsCount: d.total_trips || 0
-            });
-          });
-        }
-
-        // B. Load Identity Verifications (Rafik Girl)
-        const { data: idVerifs } = await supabaseClient
-          .from('identity_verifications')
-          .select('*, profiles:user_id(full_name, phone, gender, created_at)');
-
-        if (idVerifs) {
-          identitiesMap.clear();
-          idVerifs.forEach(iv => identitiesMap.set(iv.user_id, iv));
-        }
-
-        // C. Load Active SOS Events
-        const { data: sosList } = await supabaseClient
-          .from('sos_events')
-          .select('*, profiles:user_id(full_name, phone)')
-          .eq('status', 'active');
-
-        if (sosList) {
-          sosEvents.length = 0;
-          sosList.forEach(s => {
-            sosEvents.push({
-              id: s.id,
-              passengerName: s.profiles?.full_name || 'Passenger',
-              passengerPhone: s.profiles?.phone || '',
-              status: s.status,
-              created_at: s.created_at,
-              ride_id: s.ride_id
-            });
-          });
-        }
-
-        // D. Load Analytics from SQL View
-        const { data: metrics } = await supabaseClient
-          .from('admin_metrics_view')
-          .select('*')
-          .maybeSingle();
-
-        if (metrics) {
-          document.getElementById('kpiTotalRides').innerText = metrics.total_completed_trips || 0;
-          document.getElementById('kpiGrossVolume').innerText = parseFloat(metrics.gross_fares_egp || 0).toFixed(2);
-          document.getElementById('kpiActiveCaptains').innerText = metrics.active_captains || 0;
-        }
-
-      } catch (err) {
-        console.error('Initial data load error:', err);
-      }
-
-      renderDriversList();
-      renderIdentitiesList();
-      renderSosTable();
-      updateLiveBadges();
-      appendTelemetryLog('SYSTEM', 'Rafik Command Center initialized under Admin RLS.', '#B76E79');
-    }
-
-    // 8. Realtime Subscriptions
-    function subscribeToRealtime() {
-      if (!supabaseClient) return;
-
-      supabaseClient.channel('admin-realtime-feed')
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'drivers' }, () => loadInitialData())
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'identity_verifications' }, () => loadInitialData())
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'rides' }, (payload) => {
-          appendTelemetryLog('RIDE', `Ride update: ${payload.new?.status || 'changed'}`, '#E8B4B8');
-          updateLiveBadges();
-        })
-        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'sos_events' }, (payload) => {
-          if (payload.new && payload.new.status === 'active') {
-            playSosAlarm();
-            alert('🚨 EMERGENCY DISTRESS ALERT reported! Checking SOS Panel.');
-            loadInitialData();
+        if (functions) {
+          const getAdminMetrics = functions.httpsCallable('getAdminMetrics');
+          const result = await getAdminMetrics();
+          const metrics = result.data;
+          if (metrics) {
+            document.getElementById('kpiTotalRides').innerText = metrics.total_completed_trips || 0;
+            document.getElementById('kpiGrossVolume').innerText = parseFloat(metrics.gross_fares_egp || 0).toFixed(2);
+            document.getElementById('kpiActiveCaptains').innerText = metrics.active_drivers_count || 0;
           }
-        })
-        .subscribe();
+        }
+      } catch (e) {
+        console.warn('Metrics notice:', e);
+      }
     }
 
-    // 9. Drivers List Rendering
+    // 8. Drivers List Rendering
     function renderDriversList() {
       const grid = document.getElementById('applicantGrid');
       const drivers = Array.from(driversMap.values());
@@ -999,24 +909,28 @@
     function setDriverFilter(filter) {
       currentDriverFilter = filter;
       ['all', 'pending', 'online', 'rafik_girl', 'standard'].forEach(f => {
-        const btn = document.getElementById('filter-' + f);
-        if (btn) {
-          if (f === filter) btn.className = 'px-3 py-1 rounded-lg font-semibold bg-roseGold text-black';
-          else btn.className = 'px-3 py-1 rounded-lg font-semibold text-roseGoldLight/70 hover:text-white';
+        const el = document.getElementById('filter-' + f);
+        if (!el) return;
+        if (f === filter) {
+          el.classList.add('bg-roseGold', 'text-black', 'font-bold');
+          el.classList.remove('bg-refqaCard', 'text-roseGoldLight/60');
+        } else {
+          el.classList.remove('bg-roseGold', 'text-black', 'font-bold');
+          el.classList.add('bg-refqaCard', 'text-roseGoldLight/60');
         }
       });
       renderDriversList();
     }
 
-    // 10. Dossier Modal & Signed Document Previews
+    // 9. Dossier & Document Inspection
     async function openDriverDossier(driverId) {
-      inspectingDriverId = driverId;
       const driver = driversMap.get(driverId);
       if (!driver) return;
+      inspectingDriverId = driverId;
 
-      document.getElementById('dossierName').innerText = escapeHtml(driver.name);
-      document.getElementById('dossierContact').innerText = `${escapeHtml(driver.phone)} • ${escapeHtml(driver.email)}`;
-      document.getElementById('dossierStatusBadge').innerText = driver.status.toUpperCase();
+      document.getElementById('dossierCaptainName').innerText = driver.name;
+      document.getElementById('dossierCaptainPhone').innerText = driver.phone;
+      document.getElementById('dossierStatusPill').innerText = driver.status.toUpperCase();
       document.getElementById('dossierNatId').innerText = escapeHtml(driver.nationalId || '---');
       document.getElementById('dossierGender').innerText = driver.gender.toUpperCase();
       document.getElementById('dossierVehicleModel').innerText = escapeHtml(`${driver.vehicle.make} ${driver.vehicle.model} (${driver.vehicle.year})`);
@@ -1026,7 +940,6 @@
       document.getElementById('dossierPlateEn').innerText = escapeHtml(driver.vehicle.plateEn);
       document.getElementById('dossierConfirmFemale').checked = (driver.gender === 'female');
 
-      // Fetch signed URLs for documents from private storage bucket
       const docKinds = [
         ['national_id_front', 'docImgNatFront'],
         ['national_id_back', 'docImgNatBack'],
@@ -1040,42 +953,11 @@
         const imgEl = document.getElementById(elemId);
         imgEl.src = '';
         try {
-        if (firestoreDb) {
-          firestoreDb.collection('drivers').onSnapshot(snapshot => {
-            snapshot.forEach(doc => {
-              const d = doc.data();
-              driversMap.set(doc.id, {
-                id: doc.id,
-                name: d.full_name || 'Captain',
-                phone: d.phone || '',
-                email: d.email || '',
-                status: d.status || 'pending',
-                tier: d.tier || 'standard',
-                nationalId: d.national_id_number || 'N/A',
-                license: d.license_number || 'N/A',
-                car: (d.vehicle_model || 'Vehicle') + ' (' + (d.vehicle_plate || '') + ')',
-                color: d.vehicle_color || 'White',
-                is_online: d.is_online || false,
-                totalTrips: d.total_trips || 0,
-                rating: d.rating_avg || 5.0,
-                createdAt: d.created_at ? new Date(d.created_at.seconds * 1000).toLocaleString() : 'Recent'
-              });
-            });
-            renderDriversList();
-            refreshMapMarkers();
-            updateLiveBadges();
-          });
-        }
-          const { data } = await supabaseClient.storage
-            .from('driver-documents')
-            .createSignedUrl(`${driverId}/${kind}.jpg`, 120);
-
-          if (data && data.signedUrl) {
-            imgEl.src = data.signedUrl;
+          if (storage) {
+            const url = await storage.ref(`driver_documents/${driverId}/${kind}.jpg`).getDownloadURL();
+            imgEl.src = url;
           }
-        } catch (e) {
-          console.warn(`Signed URL error for ${kind}:`, e);
-        }
+        } catch (_) {}
       }
 
       document.getElementById('driverProfileModal').classList.remove('hidden');
@@ -1086,57 +968,28 @@
       inspectingDriverId = null;
     }
 
-    // 11. RPC Approval / Rejection Actions
+    // 10. Server-Authoritative Cloud Function Review Actions
     async function actionApproveActiveDriver() {
-      if (!inspectingDriverId) return;
+      if (!inspectingDriverId || !functions) return;
       const confirmFemale = document.getElementById('dossierConfirmFemale').checked;
 
       try {
-        if (firestoreDb) {
-          firestoreDb.collection('drivers').onSnapshot(snapshot => {
-            snapshot.forEach(doc => {
-              const d = doc.data();
-              driversMap.set(doc.id, {
-                id: doc.id,
-                name: d.full_name || 'Captain',
-                phone: d.phone || '',
-                email: d.email || '',
-                status: d.status || 'pending',
-                tier: d.tier || 'standard',
-                nationalId: d.national_id_number || 'N/A',
-                license: d.license_number || 'N/A',
-                car: (d.vehicle_model || 'Vehicle') + ' (' + (d.vehicle_plate || '') + ')',
-                color: d.vehicle_color || 'White',
-                is_online: d.is_online || false,
-                totalTrips: d.total_trips || 0,
-                rating: d.rating_avg || 5.0,
-                createdAt: d.created_at ? new Date(d.created_at.seconds * 1000).toLocaleString() : 'Recent'
-              });
-            });
-            renderDriversList();
-            refreshMapMarkers();
-            updateLiveBadges();
-          });
-        }
-        const { error } = await supabaseClient.rpc('admin_review_driver', {
-          p_driver_id: inspectingDriverId,
-          p_approve: true,
-          p_reason: null,
-          p_confirm_female: confirmFemale
+        const adminReviewDriver = functions.httpsCallable('adminReviewDriver');
+        await adminReviewDriver({
+          driverId: inspectingDriverId,
+          approve: true,
+          confirmFemale: confirmFemale
         });
 
-        if (error) throw error;
-
-        appendTelemetryLog('APPROVAL', `Captain approved via RPC contract.`, '#6B8E23');
+        appendTelemetryLog('APPROVAL', `Captain ${inspectingDriverId} approved via Cloud Functions.`, '#6B8E23');
         closeDossierModal();
-        await loadInitialData();
       } catch (e) {
-        alert('Approval failed: ' + e.message);
+        alert('Approval failed: ' + (e.message || e));
       }
     }
 
     async function actionRejectActiveDriver() {
-      if (!inspectingDriverId) return;
+      if (!inspectingDriverId || !functions) return;
       const reason = prompt('Please enter the reason for rejection (required):');
       if (!reason || !reason.trim()) {
         alert('Rejection reason is required.');
@@ -1144,50 +997,41 @@
       }
 
       try {
-        if (firestoreDb) {
-          firestoreDb.collection('drivers').onSnapshot(snapshot => {
-            snapshot.forEach(doc => {
-              const d = doc.data();
-              driversMap.set(doc.id, {
-                id: doc.id,
-                name: d.full_name || 'Captain',
-                phone: d.phone || '',
-                email: d.email || '',
-                status: d.status || 'pending',
-                tier: d.tier || 'standard',
-                nationalId: d.national_id_number || 'N/A',
-                license: d.license_number || 'N/A',
-                car: (d.vehicle_model || 'Vehicle') + ' (' + (d.vehicle_plate || '') + ')',
-                color: d.vehicle_color || 'White',
-                is_online: d.is_online || false,
-                totalTrips: d.total_trips || 0,
-                rating: d.rating_avg || 5.0,
-                createdAt: d.created_at ? new Date(d.created_at.seconds * 1000).toLocaleString() : 'Recent'
-              });
-            });
-            renderDriversList();
-            refreshMapMarkers();
-            updateLiveBadges();
-          });
-        }
-        const { error } = await supabaseClient.rpc('admin_review_driver', {
-          p_driver_id: inspectingDriverId,
-          p_approve: false,
-          p_reason: reason.trim(),
-          p_confirm_female: false
+        const adminReviewDriver = functions.httpsCallable('adminReviewDriver');
+        await adminReviewDriver({
+          driverId: inspectingDriverId,
+          approve: false,
+          reason: reason.trim(),
+          confirmFemale: false
         });
 
-        if (error) throw error;
-
-        appendTelemetryLog('REJECTION', `Captain application rejected: ${reason}`, '#E53935');
+        appendTelemetryLog('REJECTION', `Captain ${inspectingDriverId} rejected: ${reason}`, '#E53935');
         closeDossierModal();
-        await loadInitialData();
       } catch (e) {
-        alert('Rejection failed: ' + e.message);
+        alert('Rejection failed: ' + (e.message || e));
       }
     }
 
-    // 12. Identity Queue (Rafik Girl Riders)
+    async function actionSuspendActiveDriver() {
+      if (!inspectingDriverId || !functions) return;
+      const reason = prompt('Please enter the reason for suspension (required):');
+      if (!reason || !reason.trim()) return;
+
+      try {
+        const adminSuspendDriver = functions.httpsCallable('adminSuspendDriver');
+        await adminSuspendDriver({
+          driverId: inspectingDriverId,
+          reason: reason.trim()
+        });
+
+        appendTelemetryLog('SUSPENSION', `Captain ${inspectingDriverId} suspended.`, '#E53935');
+        closeDossierModal();
+      } catch (e) {
+        alert('Suspension failed: ' + (e.message || e));
+      }
+    }
+
+    // 11. Identity Queue (Rafik Girl Riders)
     function renderIdentitiesList() {
       const grid = document.getElementById('identitiesGrid');
       const list = Array.from(identitiesMap.values());
@@ -1211,161 +1055,87 @@
           <div class="p-6 rounded-2xl bg-refqaCard border border-refqaBorder space-y-4">
             <div class="flex items-center justify-between">
               <div>
-                <h3 class="text-base font-bold text-white">${escapeHtml(prof.full_name || 'Rider')}</h3>
-                <p class="text-xs text-roseGoldLight/60 font-mono">${escapeHtml(prof.phone || '')}</p>
+                <h3 class="text-base font-bold text-white">${escapeHtml(prof.full_name)}</h3>
+                <p class="text-xs text-roseGoldLight/60 font-mono">${escapeHtml(prof.phone)}</p>
               </div>
-              <span class="pill-badge pill-rose">IDENTITY PENDING</span>
+              <span class="pill-badge pill-alert">PENDING VERIFICATION</span>
             </div>
+
             <div class="grid grid-cols-2 gap-4">
-              <div class="text-center">
-                <span class="text-[10px] text-roseGold block mb-1">ID FRONT</span>
-                <img id="riderId_${iv.user_id}" class="w-full h-32 object-cover rounded-xl border border-white/10" alt="ID Front" />
+              <div class="space-y-1">
+                <span class="text-[10px] text-roseGoldLight/50 uppercase font-mono">NATIONAL ID (FRONT)</span>
+                <div class="h-40 rounded-xl bg-black/40 overflow-hidden border border-white/10 flex items-center justify-center">
+                  <img id="riderId_${iv.user_id}" src="" class="h-full w-full object-cover" onerror="this.src='https://placehold.co/400x250/1a0d13/b76e79?text=ID+Front';" />
+                </div>
               </div>
-              <div class="text-center">
-                <span class="text-[10px] text-roseGold block mb-1">BIOMETRIC SELFIE</span>
-                <img id="riderSelfie_${iv.user_id}" class="w-full h-32 object-cover rounded-xl border border-white/10" alt="Selfie" />
+              <div class="space-y-1">
+                <span class="text-[10px] text-roseGoldLight/50 uppercase font-mono">LIVE SELFIE</span>
+                <div class="h-40 rounded-xl bg-black/40 overflow-hidden border border-white/10 flex items-center justify-center">
+                  <img id="riderSelfie_${iv.user_id}" src="" class="h-full w-full object-cover" onerror="this.src='https://placehold.co/400x250/1a0d13/b76e79?text=Selfie';" />
+                </div>
               </div>
             </div>
-            <div class="flex justify-end space-x-2 pt-2 border-t border-white/5">
-              <button onclick="actionRejectIdentity('${iv.user_id}')" class="px-4 py-1.5 bg-alertSos/20 text-alertSos font-bold rounded-xl text-xs hover:bg-alertSos/30">
-                Reject
+
+            <div class="flex justify-end space-x-3 pt-2 border-t border-white/5">
+              <button onclick="actionRejectIdentity('${iv.user_id}')" class="px-4 py-2 bg-alertSos/20 hover:bg-alertSos/30 text-alertSos font-bold rounded-xl text-xs transition">
+                Reject Proof
               </button>
-              <button onclick="actionApproveIdentity('${iv.user_id}')" class="px-4 py-1.5 bg-sageSafe text-black font-bold rounded-xl text-xs hover:bg-sageSafe/90">
-                Approve (Unlock Rafik Girl)
+              <button onclick="actionApproveIdentity('${iv.user_id}')" class="px-4 py-2 bg-sageSafe hover:bg-sageSafe/90 text-black font-bold rounded-xl text-xs transition">
+                Certify for Rafik Girl
               </button>
             </div>
           </div>
         `;
       }).join('');
 
-      // Load signed URLs for identities
       pending.forEach(async iv => {
         try {
-        if (firestoreDb) {
-          firestoreDb.collection('drivers').onSnapshot(snapshot => {
-            snapshot.forEach(doc => {
-              const d = doc.data();
-              driversMap.set(doc.id, {
-                id: doc.id,
-                name: d.full_name || 'Captain',
-                phone: d.phone || '',
-                email: d.email || '',
-                status: d.status || 'pending',
-                tier: d.tier || 'standard',
-                nationalId: d.national_id_number || 'N/A',
-                license: d.license_number || 'N/A',
-                car: (d.vehicle_model || 'Vehicle') + ' (' + (d.vehicle_plate || '') + ')',
-                color: d.vehicle_color || 'White',
-                is_online: d.is_online || false,
-                totalTrips: d.total_trips || 0,
-                rating: d.rating_avg || 5.0,
-                createdAt: d.created_at ? new Date(d.created_at.seconds * 1000).toLocaleString() : 'Recent'
-              });
-            });
-            renderDriversList();
-            refreshMapMarkers();
-            updateLiveBadges();
-          });
-        }
-          const { data: front } = await supabaseClient.storage.from('identity-documents').createSignedUrl(iv.id_front_path, 120);
-          if (front && front.signedUrl) {
+          if (storage && iv.id_front_path) {
+            const url = await storage.ref(iv.id_front_path).getDownloadURL();
             const el = document.getElementById(`riderId_${iv.user_id}`);
-            if (el) el.src = front.signedUrl;
+            if (el) el.src = url;
           }
-          const { data: selfie } = await supabaseClient.storage.from('identity-documents').createSignedUrl(iv.selfie_path, 120);
-          if (selfie && selfie.signedUrl) {
+          if (storage && iv.selfie_path) {
+            const url = await storage.ref(iv.selfie_path).getDownloadURL();
             const el = document.getElementById(`riderSelfie_${iv.user_id}`);
-            if (el) el.src = selfie.signedUrl;
+            if (el) el.src = url;
           }
         } catch (_) {}
       });
     }
 
     async function actionApproveIdentity(userId) {
+      if (!functions) return;
       try {
-        if (firestoreDb) {
-          firestoreDb.collection('drivers').onSnapshot(snapshot => {
-            snapshot.forEach(doc => {
-              const d = doc.data();
-              driversMap.set(doc.id, {
-                id: doc.id,
-                name: d.full_name || 'Captain',
-                phone: d.phone || '',
-                email: d.email || '',
-                status: d.status || 'pending',
-                tier: d.tier || 'standard',
-                nationalId: d.national_id_number || 'N/A',
-                license: d.license_number || 'N/A',
-                car: (d.vehicle_model || 'Vehicle') + ' (' + (d.vehicle_plate || '') + ')',
-                color: d.vehicle_color || 'White',
-                is_online: d.is_online || false,
-                totalTrips: d.total_trips || 0,
-                rating: d.rating_avg || 5.0,
-                createdAt: d.created_at ? new Date(d.created_at.seconds * 1000).toLocaleString() : 'Recent'
-              });
-            });
-            renderDriversList();
-            refreshMapMarkers();
-            updateLiveBadges();
-          });
-        }
-        const { error } = await supabaseClient.rpc('admin_review_identity', {
-          p_user_id: userId,
-          p_approve: true,
-          p_reason: null
+        const adminReviewIdentity = functions.httpsCallable('adminReviewIdentity');
+        await adminReviewIdentity({
+          userId: userId,
+          approve: true
         });
-        if (error) throw error;
-        appendTelemetryLog('IDENTITY', `Rider verified for Rafik Girl.`, '#6B8E23');
-        await loadInitialData();
+        appendTelemetryLog('IDENTITY', `Rider ${userId} verified for Rafik Girl.`, '#6B8E23');
       } catch (e) {
-        alert('Error: ' + e.message);
+        alert('Error: ' + (e.message || e));
       }
     }
 
     async function actionRejectIdentity(userId) {
+      if (!functions) return;
       const reason = prompt('Please enter reason for rejection (required):');
       if (!reason || !reason.trim()) return;
       try {
-        if (firestoreDb) {
-          firestoreDb.collection('drivers').onSnapshot(snapshot => {
-            snapshot.forEach(doc => {
-              const d = doc.data();
-              driversMap.set(doc.id, {
-                id: doc.id,
-                name: d.full_name || 'Captain',
-                phone: d.phone || '',
-                email: d.email || '',
-                status: d.status || 'pending',
-                tier: d.tier || 'standard',
-                nationalId: d.national_id_number || 'N/A',
-                license: d.license_number || 'N/A',
-                car: (d.vehicle_model || 'Vehicle') + ' (' + (d.vehicle_plate || '') + ')',
-                color: d.vehicle_color || 'White',
-                is_online: d.is_online || false,
-                totalTrips: d.total_trips || 0,
-                rating: d.rating_avg || 5.0,
-                createdAt: d.created_at ? new Date(d.created_at.seconds * 1000).toLocaleString() : 'Recent'
-              });
-            });
-            renderDriversList();
-            refreshMapMarkers();
-            updateLiveBadges();
-          });
-        }
-        const { error } = await supabaseClient.rpc('admin_review_identity', {
-          p_user_id: userId,
-          p_approve: false,
-          p_reason: reason.trim()
+        const adminReviewIdentity = functions.httpsCallable('adminReviewIdentity');
+        await adminReviewIdentity({
+          userId: userId,
+          approve: false,
+          reason: reason.trim()
         });
-        if (error) throw error;
         appendTelemetryLog('IDENTITY', `Rider verification rejected: ${reason}`, '#E53935');
-        await loadInitialData();
       } catch (e) {
-        alert('Error: ' + e.message);
+        alert('Error: ' + (e.message || e));
       }
     }
 
-    // 13. SOS Table & Audible Alarm
+    // 12. SOS Incident Operations
     function renderSosTable() {
       const tbody = document.getElementById('sosTableBody');
       document.getElementById('sosCounterPill').innerText = `${sosEvents.length} ACTIVE INCIDENTS`;
@@ -1373,7 +1143,7 @@
       if (sosEvents.length === 0) {
         tbody.innerHTML = `
           <tr>
-            <td colspan="5" class="p-8 text-center text-roseGoldLight/40">No active emergency distress events reported. System on high alert.</td>
+            <td colspan="5" class="p-8 text-center text-roseGoldLight/40">No active emergency distress events reported. Platform operating securely.</td>
           </tr>
         `;
         return;
@@ -1395,81 +1165,24 @@
     }
 
     async function resolveSos(sosId) {
+      if (!functions) return;
       const note = prompt('Please enter incident resolution note:');
       if (!note || !note.trim()) return;
 
       try {
-        if (firestoreDb) {
-          firestoreDb.collection('drivers').onSnapshot(snapshot => {
-            snapshot.forEach(doc => {
-              const d = doc.data();
-              driversMap.set(doc.id, {
-                id: doc.id,
-                name: d.full_name || 'Captain',
-                phone: d.phone || '',
-                email: d.email || '',
-                status: d.status || 'pending',
-                tier: d.tier || 'standard',
-                nationalId: d.national_id_number || 'N/A',
-                license: d.license_number || 'N/A',
-                car: (d.vehicle_model || 'Vehicle') + ' (' + (d.vehicle_plate || '') + ')',
-                color: d.vehicle_color || 'White',
-                is_online: d.is_online || false,
-                totalTrips: d.total_trips || 0,
-                rating: d.rating_avg || 5.0,
-                createdAt: d.created_at ? new Date(d.created_at.seconds * 1000).toLocaleString() : 'Recent'
-              });
-            });
-            renderDriversList();
-            refreshMapMarkers();
-            updateLiveBadges();
-          });
-        }
-        const { error } = await supabaseClient
-          .from('sos_events')
-          .update({
-            status: 'resolved',
-            resolved_at: new Date().toISOString(),
-            note: note.trim()
-          })
-          .eq('id', sosId);
-
-        if (error) throw error;
+        const adminResolveSos = functions.httpsCallable('adminResolveSos');
+        await adminResolveSos({
+          sosId: sosId,
+          notes: note.trim()
+        });
         appendTelemetryLog('SOS RESOLVED', `Incident ${sosId.substring(0, 8)} resolved: ${note}`, '#6B8E23');
-        await loadInitialData();
       } catch (e) {
-        alert('Could not resolve SOS: ' + e.message);
+        alert('Could not resolve SOS: ' + (e.message || e));
       }
     }
 
     function playSosAlarm() {
       try {
-        if (firestoreDb) {
-          firestoreDb.collection('drivers').onSnapshot(snapshot => {
-            snapshot.forEach(doc => {
-              const d = doc.data();
-              driversMap.set(doc.id, {
-                id: doc.id,
-                name: d.full_name || 'Captain',
-                phone: d.phone || '',
-                email: d.email || '',
-                status: d.status || 'pending',
-                tier: d.tier || 'standard',
-                nationalId: d.national_id_number || 'N/A',
-                license: d.license_number || 'N/A',
-                car: (d.vehicle_model || 'Vehicle') + ' (' + (d.vehicle_plate || '') + ')',
-                color: d.vehicle_color || 'White',
-                is_online: d.is_online || false,
-                totalTrips: d.total_trips || 0,
-                rating: d.rating_avg || 5.0,
-                createdAt: d.created_at ? new Date(d.created_at.seconds * 1000).toLocaleString() : 'Recent'
-              });
-            });
-            renderDriversList();
-            refreshMapMarkers();
-            updateLiveBadges();
-          });
-        }
         const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
         const osc = audioCtx.createOscillator();
         const gain = audioCtx.createGain();
@@ -1485,7 +1198,7 @@
       } catch (_) {}
     }
 
-    // 14. Telemetry Logging
+    // 13. Telemetry Logging
     function appendTelemetryLog(tag, message, color) {
       const logContainer = document.getElementById('telemetryLog');
       const timeStr = new Date().toLocaleTimeString('en-US', { hour12: false });

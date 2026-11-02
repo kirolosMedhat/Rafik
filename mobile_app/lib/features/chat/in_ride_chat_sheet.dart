@@ -64,45 +64,40 @@ class _InRideChatSheetState extends State<InRideChatSheet> {
   @override
   void initState() {
     super.initState();
-    _seedInitialMessages();
     _initFirebaseChat();
   }
-
-  void _seedInitialMessages() {
-    _messages.add(ChatMessage(
-      sender: widget.myRole == 'rider' ? 'driver' : 'rider',
-      text: widget.myRole == 'rider'
-          ? 'Peace be upon you! I have accepted your request and heading to pickup.'
-          : 'Thank you Captain! I will be ready at the entrance.',
-      time: 'Just now',
-    ));
-  }
-
 
   void _initFirebaseChat() {
     _firebaseChatSub?.cancel();
     _firebaseChatSub = FirebaseService().streamRideMessages(widget.rideId).listen((snapshot) {
       if (!mounted) return;
       final myUid = FirebaseService().currentUser?.uid;
-      for (var change in snapshot.docChanges) {
-        if (change.type == DocumentChangeType.added) {
-          final data = change.doc.data();
-          if (data != null) {
-            final senderId = data['sender_id']?.toString();
-            if (senderId != myUid) {
-              HapticFeedback.lightImpact();
-              setState(() {
-                _messages.add(ChatMessage(
-                  sender: widget.myRole == 'rider' ? 'driver' : 'rider',
-                  text: data['text']?.toString() ?? '',
-                  time: 'Just now',
-                ));
-              });
-              _scrollToBottom();
-            }
-          }
-        }
+      final loadedMessages = <ChatMessage>[];
+
+      for (var doc in snapshot.docs) {
+        final data = doc.data();
+        final senderId = data['sender_id']?.toString();
+        final senderRole = (senderId == myUid)
+            ? widget.myRole
+            : (widget.myRole == 'rider' ? 'driver' : 'rider');
+        final text = data['text']?.toString() ?? '';
+        final ts = (data['created_at'] as Timestamp?)?.toDate();
+        final timeStr = ts != null
+            ? '${ts.hour.toString().padLeft(2, '0')}:${ts.minute.toString().padLeft(2, '0')}'
+            : 'Just now';
+
+        loadedMessages.add(ChatMessage(
+          sender: senderRole,
+          text: text,
+          time: timeStr,
+        ));
       }
+
+      setState(() {
+        _messages.clear();
+        _messages.addAll(loadedMessages);
+      });
+      _scrollToBottom();
     });
   }
 

@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:io';
-import 'dart:math';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_app_check/firebase_app_check.dart';
@@ -8,10 +7,23 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:firebase_storage/firebase_storage.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 import '../../firebase_options.dart';
 import '../utils/national_id_utils.dart';
 import '../utils/phone_number_utils.dart';
+
+@pragma('vm:entry-point')
+Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
+  try {
+    if (Firebase.apps.isEmpty) {
+      await Firebase.initializeApp(
+        options: DefaultFirebaseOptions.currentPlatform,
+      );
+    }
+  } catch (_) {}
+  debugPrint('[FCM Background] Message received: ${message.messageId}, data: ${message.data}');
+}
 
 // =============================================================================
 // AUTHENTICATION & AUTHORIZATION EXCEPTIONS
@@ -82,6 +94,24 @@ class DriverStatusException implements Exception {
   String toString() => message;
 }
 
+/// Authoritative server-calculated ride request result
+class RideRequestResult {
+  final String rideId;
+  final double fareEgp;
+  final double distanceKm;
+  final String? pin;
+
+  const RideRequestResult({
+    required this.rideId,
+    required this.fareEgp,
+    required this.distanceKm,
+    this.pin,
+  });
+
+  @override
+  String toString() => rideId;
+}
+
 // =============================================================================
 // COMPLETE FIREBASE SERVICE FOR RAFIK
 // =============================================================================
@@ -93,6 +123,12 @@ class DriverStatusException implements Exception {
 /// - 6-Sided KYC Document Upload via Firebase Storage
 /// - Server-Authoritative Roles & Custom Claims
 class FirebaseService {
+  /// Computes estimated fare preview in EGP: max(25.00, 15.00 + km * 10.00)
+  static double computeFarePreview(double km) {
+    final calculated = 15.0 + (km * 10.0);
+    return calculated < 25.0 ? 25.0 : double.parse(calculated.toStringAsFixed(2));
+  }
+
   static final FirebaseService _instance = FirebaseService._internal();
   factory FirebaseService() => _instance;
   FirebaseService._internal();
@@ -585,9 +621,9 @@ class FirebaseService {
 
   final Map<String, String> _ridePins = {};
 
-  /// Creates a ride request via server-authoritative Cloud Function (requestRide).
-  /// Falls back to direct Firestore creation if functions offline.
-  Future<String> requestRide({
+  /// Creates a ride request strictly via server-authoritative Cloud Function (requestRide).
+  /// Requirement A compliant: No insecure direct Firestore creation fallback.
+  Future<RideRequestResult> requestRide({
     required String pickupAddress,
     required double pickupLat,
     required double pickupLng,
@@ -603,64 +639,37 @@ class FirebaseService {
     final user = currentUser;
     if (user == null) throw Exception('User not authenticated');
 
-    try {
-      final callable = functions.httpsCallable('requestRide');
-      final res = await callable.call({
-        'tier': tier,
-        'pickup_address': pickupAddress,
-        'pickup_lat': pickupLat,
-        'pickup_lng': pickupLng,
-        'dropoff_address': dropoffAddress,
-        'dropoff_lat': dropoffLat,
-        'dropoff_lng': dropoffLng,
-        'payment_method': paymentMethod,
-      });
+    final callable = functions.httpsCallable('requestRide');
+    final res = await callable.call({
+      'tier': tier,
+      'pickup_address': pickupAddress,
+      'pickup_lat': pickupLat,
+      'pickup_lng': pickupLng,
+      'dropoff_address': dropoffAddress,
+      'dropoff_lat': dropoffLat,
+      'dropoff_lng': dropoffLng,
+      'payment_method': paymentMethod,
+    });
 
-      final data = Map<String, dynamic>.from(res.data);
-      final rideId = data['ride_id'].toString();
-      if (data['pin'] != null) {
-        _ridePins[rideId] = data['pin'].toString();
-      }
-      debugPrint('[FirebaseService] requestRide Cloud Function success: $rideId');
-      return rideId;
-    } catch (fnErr) {
-      debugPrint('[FirebaseService] requestRide callable notice: $fnErr, trying direct Firestore');
+    final data = Map<String, dynamic>.from(res.data);
+    final rideId = data['ride_id'].toString();
+    final serverFare = (data['fare_egp'] as num?)?.toDouble() ?? fareEgp;
+    final serverDist = (data['distance_km'] as num?)?.toDouble() ?? distanceKm;
+    final pin = data['pin']?.toString();
 
-      final profile = await getCurrentUserProfile();
-      final riderName = profile?['full_name'] ?? user.displayName ?? 'Rafik Passenger';
-      final riderPhone = profile?['phone'] ?? user.phoneNumber ?? '';
-      final randomPin = (1000 + Random().nextInt(9000)).toString();
-
-      final docRef = await firestore.collection('rides').add({
-        'rider_id': user.uid,
-        'rider_name': riderName,
-        'rider_phone': riderPhone,
-        'tier': tier,
-        'status': 'requested',
-        'pickup_address': pickupAddress,
-        'pickup_lat': pickupLat,
-        'pickup_lng': pickupLng,
-        'dropoff_address': dropoffAddress,
-        'dropoff_lat': dropoffLat,
-        'dropoff_lng': dropoffLng,
-        'distance_km': distanceKm,
-        'fare_egp': fareEgp,
-        'payment_method': paymentMethod,
-        'pin': randomPin,
-        'attempts': 0,
-        'driver_id': null,
-        'driver_name': null,
-        'driver_phone': null,
-        'requested_at': FieldValue.serverTimestamp(),
-        'expires_at': Timestamp.fromDate(DateTime.now().add(const Duration(minutes: 3))),
-      });
-
-      _ridePins[docRef.id] = randomPin;
-      return docRef.id;
+    if (pin != null) {
+      _ridePins[rideId] = pin;
     }
+    debugPrint('[FirebaseService] requestRide server success: $rideId, fare: $serverFare EGP');
+    return RideRequestResult(
+      rideId: rideId,
+      fareEgp: serverFare,
+      distanceKm: serverDist,
+      pin: pin,
+    );
   }
 
-  /// Fetches the 4-digit pickup PIN for the passenger
+  /// Fetches the 4-digit pickup PIN for the passenger strictly from isolated security document
   Future<String?> fetchRidePin(String rideId) async {
     if (_ridePins.containsKey(rideId)) {
       return _ridePins[rideId];
@@ -678,29 +687,16 @@ class FirebaseService {
         _ridePins[rideId] = pin;
         return pin;
       }
-      final rideDoc = await firestore.collection('rides').doc(rideId).get();
-      if (rideDoc.exists && rideDoc.data()?['pin'] != null) {
-        final pin = rideDoc.data()!['pin'].toString();
-        _ridePins[rideId] = pin;
-        return pin;
-      }
     } catch (e) {
       debugPrint('[FirebaseService] fetchRidePin notice: $e');
     }
     return null;
   }
 
-  /// Real-time stream of newly requested rides for online drivers.
-  Stream<QuerySnapshot<Map<String, dynamic>>> streamAvailableRides() {
-    return firestore
-        .collection('rides')
-        .where('status', isEqualTo: 'requested')
-        .snapshots();
-  }
-
-  /// Accepts a ride offer atomically via Cloud Function (acceptRide) or transaction
+  /// Accepts a ride offer atomically strictly via Cloud Function (acceptRide).
+  /// Requirement A compliant: No direct client Firestore update fallback.
   Future<bool> acceptRide({
-    String? offerId,
+    String offerId = '',
     required String rideId,
     required String driverId,
     required String driverName,
@@ -709,200 +705,77 @@ class FirebaseService {
     required String vehicleModel,
   }) async {
     await initialize();
-    if (offerId != null && offerId.isNotEmpty) {
-      try {
-        final callable = functions.httpsCallable('acceptRide');
-        final res = await callable.call({'offerId': offerId});
-        final data = Map<String, dynamic>.from(res.data);
-        return data['success'] == true;
-      } catch (e) {
-        debugPrint('[FirebaseService] acceptRide callable notice: $e');
-      }
-    }
-
-    return firestore.runTransaction<bool>((transaction) async {
-      final rideRef = firestore.collection('rides').doc(rideId);
-      final snapshot = await transaction.get(rideRef);
-
-      if (!snapshot.exists) return false;
-      if (snapshot.get('status') != 'requested') {
-        return false;
-      }
-
-      transaction.update(rideRef, {
-        'status': 'accepted',
-        'driver_id': driverId,
-        'driver_name': driverName,
-        'driver_phone': driverPhone,
-        'vehicle_plate': vehiclePlate,
-        'vehicle_model': vehicleModel,
-        'accepted_at': FieldValue.serverTimestamp(),
-      });
-
-      transaction.update(firestore.collection('drivers').doc(driverId), {
-        'is_busy': true,
-      });
-
-      return true;
-    });
+    final callable = functions.httpsCallable('acceptRide');
+    final res = await callable.call({'offerId': offerId.isNotEmpty ? offerId : rideId});
+    final data = Map<String, dynamic>.from(res.data);
+    return data['success'] == true;
   }
 
-  /// Driver arrived at pickup location (calls Cloud Function markArrived with geofence)
-  Future<void> markArrived(String rideId, {double? currentLat, double? currentLng}) async {
+  /// Driver arrived at pickup location strictly via Cloud Function (markArrived).
+  /// Requirement D compliant: Backend verifies live RTDB coordinates; client coordinates are not accepted.
+  Future<void> markArrived(String rideId) async {
     await initialize();
-    try {
-      final callable = functions.httpsCallable('markArrived');
-      await callable.call({
-        'rideId': rideId,
-        'currentLat': currentLat,
-        'currentLng': currentLng,
-      });
-    } catch (e) {
-      debugPrint('[FirebaseService] markArrived callable notice: $e');
-      await firestore.collection('rides').doc(rideId).update({
-        'status': 'arrived',
-        'arrived_at': FieldValue.serverTimestamp(),
-      });
-    }
+    final callable = functions.httpsCallable('markArrived');
+    await callable.call({'rideId': rideId});
   }
 
-  /// Driver verifies 4-digit PIN and starts trip via Cloud Function (verifyPinAndStartTrip)
+  /// Driver verifies 4-digit PIN and starts trip strictly via Cloud Function (verifyPinAndStartTrip).
+  /// Requirement A & C compliant: No client PIN check or state elevation.
   Future<Map<String, dynamic>> startRide({
     required String rideId,
     required String pin,
   }) async {
     await initialize();
-    try {
-      final callable = functions.httpsCallable('verifyPinAndStartTrip');
-      final res = await callable.call({
-        'rideId': rideId,
-        'pin': pin,
-      });
-      final data = Map<String, dynamic>.from(res.data);
-      if (data['success'] == true) {
-        return {'ok': true, 'status': 'in_progress'};
-      } else {
-        return {
-          'ok': false,
-          'status': data['status'],
-          'attempts_left': data['attempts_left'] ?? 0,
-          'locked': data['is_locked'] == true,
-          'error': data['is_locked'] == true
-              ? 'Trip PIN is locked after 3 failed attempts.'
-              : 'Incorrect PIN. ${data['attempts_left'] ?? 0} attempts remaining.',
-        };
-      }
-    } catch (e) {
-      debugPrint('[FirebaseService] verifyPinAndStartTrip callable notice: $e');
-      final rideRef = firestore.collection('rides').doc(rideId);
-      final snapshot = await rideRef.get();
-
-      if (!snapshot.exists) return {'ok': false, 'error': 'Trip not found'};
-      final correctPin = snapshot.data()?['pin']?.toString() ?? '';
-      final attempts = (snapshot.data()?['attempts'] as num?)?.toInt() ?? 0;
-
-      if (attempts >= 3) {
-        return {'ok': false, 'locked': true, 'error': 'Trip PIN is locked after 3 attempts'};
-      }
-
-      if (pin.trim() == correctPin.trim()) {
-        await rideRef.update({
-          'status': 'in_progress',
-          'started_at': FieldValue.serverTimestamp(),
-        });
-        return {'ok': true};
-      } else {
-        final newAttempts = attempts + 1;
-        await rideRef.update({'attempts': newAttempts});
-        return {
-          'ok': false,
-          'attempts_left': max(0, 3 - newAttempts),
-          'locked': newAttempts >= 3,
-          'error': 'Incorrect PIN. ${max(0, 3 - newAttempts)} attempts remaining.',
-        };
-      }
+    final callable = functions.httpsCallable('verifyPinAndStartTrip');
+    final res = await callable.call({
+      'rideId': rideId,
+      'pin': pin.trim(),
+    });
+    final data = Map<String, dynamic>.from(res.data);
+    if (data['success'] == true) {
+      return {'ok': true, 'status': 'in_progress'};
+    } else {
+      return {
+        'ok': false,
+        'status': data['status'],
+        'attempts_left': data['attempts_left'] ?? 0,
+        'locked': data['is_locked'] == true,
+        'error': data['is_locked'] == true
+            ? 'Trip PIN is locked after 3 failed attempts.'
+            : 'Incorrect PIN. ${data['attempts_left'] ?? 0} attempts remaining.',
+      };
     }
   }
 
-  /// Completes trip via Cloud Function (completeRide)
+  /// Completes trip strictly via Cloud Function (completeRide).
+  /// Requirement A compliant: No client wallet crediting or status updates.
   Future<void> completeRide({
     required String rideId,
     String? driverId,
     double? fareEgp,
   }) async {
     await initialize();
-    try {
-      final callable = functions.httpsCallable('completeRide');
-      await callable.call({'rideId': rideId});
-    } catch (e) {
-      debugPrint('[FirebaseService] completeRide callable notice: $e');
-      if (driverId != null && fareEgp != null) {
-        final batch = firestore.batch();
-        final rideRef = firestore.collection('rides').doc(rideId);
-        batch.update(rideRef, {
-          'status': 'completed',
-          'completed_at': FieldValue.serverTimestamp(),
-        });
-
-        final driverRef = firestore.collection('drivers').doc(driverId);
-        batch.update(driverRef, {
-          'is_busy': false,
-          'total_trips': FieldValue.increment(1),
-          'wallet_balance_egp': FieldValue.increment(fareEgp),
-        });
-
-        final txRef = firestore.collection('wallet_transactions').doc();
-        batch.set(txRef, {
-          'driver_id': driverId,
-          'ride_id': rideId,
-          'kind': 'fare_earned',
-          'amount_egp': fareEgp,
-          'created_at': FieldValue.serverTimestamp(),
-        });
-
-        await batch.commit();
-      }
-    }
+    final callable = functions.httpsCallable('completeRide');
+    await callable.call({'rideId': rideId});
   }
 
-  /// Cancels a ride via Cloud Function (cancelRide)
+  /// Cancels a ride strictly via Cloud Function (cancelRide).
+  /// Requirement A compliant: No direct client batch update fallback.
   Future<void> cancelRide({
     required String rideId,
     required String cancelledBy,
     required String reason,
   }) async {
     await initialize();
-    try {
-      final callable = functions.httpsCallable('cancelRide');
-      await callable.call({
-        'rideId': rideId,
-        'reason': reason,
-      });
-    } catch (e) {
-      debugPrint('[FirebaseService] cancelRide callable notice: $e');
-      final rideRef = firestore.collection('rides').doc(rideId);
-      final snapshot = await rideRef.get();
-      final driverId = snapshot.data()?['driver_id'] as String?;
-
-      final batch = firestore.batch();
-      batch.update(rideRef, {
-        'status': 'cancelled',
-        'cancelled_by': cancelledBy,
-        'cancellation_reason': reason,
-        'cancelled_at': FieldValue.serverTimestamp(),
-      });
-
-      if (driverId != null) {
-        batch.update(firestore.collection('drivers').doc(driverId), {
-          'is_busy': false,
-        });
-      }
-
-      await batch.commit();
-    }
+    final callable = functions.httpsCallable('cancelRide');
+    await callable.call({
+      'rideId': rideId,
+      'reason': reason,
+    });
   }
 
-  /// Mutual Rating via Cloud Function (rateRide)
+  /// Mutual Rating strictly via Cloud Function (rateRide).
+  /// Requirement A & G compliant: Validates rating boundaries and updates average atomically on server.
   Future<void> rateRide({
     required String rideId,
     required double rating,
@@ -910,22 +783,130 @@ class FirebaseService {
     String? comment,
   }) async {
     await initialize();
+    final callable = functions.httpsCallable('rateRide');
+    await callable.call({
+      'rideId': rideId,
+      'rating': rating,
+      'review': [comment ?? '', ...(badges ?? [])].where((s) => s.isNotEmpty).join(' | '),
+    });
+  }
+
+  // ===========================================================================
+  // 6. FIREBASE CLOUD MESSAGING (FCM) & ACTIVE SESSION MANAGEMENT (Requirement F)
+  // ===========================================================================
+
+  FirebaseMessaging? _messaging;
+  FirebaseMessaging get messaging {
+    _messaging ??= FirebaseMessaging.instance;
+    return _messaging!;
+  }
+
+  /// Initializes FCM permissions, listeners, and token refresh
+  Future<void> initializeFcm({
+    void Function(RemoteMessage message)? onOfferReceived,
+    void Function(RemoteMessage message)? onNotificationOpened,
+  }) async {
+    await initialize();
+
     try {
-      final callable = functions.httpsCallable('rateRide');
-      await callable.call({
-        'rideId': rideId,
-        'rating': rating,
-        'review': [comment ?? '', ...(badges ?? [])].where((s) => s.isNotEmpty).join(' | '),
+      final settings = await messaging.requestPermission(
+        alert: true,
+        announcement: false,
+        badge: true,
+        carPlay: false,
+        criticalAlert: false,
+        provisional: false,
+        sound: true,
+      );
+      debugPrint('[FCM] Notification authorization status: ${settings.authorizationStatus}');
+
+      // Register background message handler
+      FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
+
+      // Foreground message listener
+      FirebaseMessaging.onMessage.listen((RemoteMessage message) {
+        debugPrint('[FCM Foreground] Got message: ${message.messageId}, type: ${message.data['type']}');
+        if (message.data['type'] == 'ride_offer' && onOfferReceived != null) {
+          onOfferReceived(message);
+        }
+      });
+
+      // Background notification tap listener
+      FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
+        debugPrint('[FCM onMessageOpenedApp] Notification opened: ${message.messageId}');
+        if (onNotificationOpened != null) {
+          onNotificationOpened(message);
+        }
+      });
+
+      // Cold start notification tap
+      final initialMessage = await messaging.getInitialMessage();
+      if (initialMessage != null && onNotificationOpened != null) {
+        onNotificationOpened(initialMessage);
+      }
+
+      // Auto-register token if user is signed in
+      final uid = currentUser?.uid;
+      if (uid != null) {
+        await registerFcmToken(uid);
+      }
+    } catch (e) {
+      debugPrint('[FCM] Initialization notice: $e');
+    }
+  }
+
+  /// Registers and persists the driver's FCM token under their active session
+  Future<void> registerFcmToken(String userId) async {
+    try {
+      final token = await messaging.getToken();
+      if (token != null && token.isNotEmpty) {
+        await _persistFcmToken(userId, token);
+      }
+
+      messaging.onTokenRefresh.listen((newToken) async {
+        debugPrint('[FCM] Token refreshed for $userId');
+        await _persistFcmToken(userId, newToken);
       });
     } catch (e) {
-      debugPrint('[FirebaseService] rateRide callable notice: $e');
-      await firestore.collection('rides').doc(rideId).collection('ratings').add({
-        'rater_id': currentUser?.uid,
-        'rating': rating,
-        'badges': badges ?? [],
-        'comment': comment ?? '',
-        'created_at': FieldValue.serverTimestamp(),
+      debugPrint('[FCM] Token registration warning: $e');
+    }
+  }
+
+  /// Persists FCM token to Firestore /active_sessions/{userId} and RTDB
+  Future<void> _persistFcmToken(String userId, String token) async {
+    try {
+      // 1. Firestore Active Session
+      await firestore.collection('active_sessions').doc(userId).set({
+        'fcm_token': token,
+        'updated_at': FieldValue.serverTimestamp(),
+        'platform': Platform.isAndroid ? 'android' : (Platform.isIOS ? 'ios' : 'other'),
+      }, SetOptions(merge: true));
+
+      // 2. RTDB Active Session
+      await rtdb.ref('active_sessions/$userId').update({
+        'fcm_token': token,
+        'updated_at': ServerValue.timestamp,
       });
+
+      // 3. User document backup
+      await firestore.collection('users').doc(userId).update({
+        'fcm_token': token,
+      });
+      debugPrint('[FCM] Token securely persisted for $userId');
+    } catch (e) {
+      debugPrint('[FCM] Token persist note: $e');
+    }
+  }
+
+  /// Removes and invalidates the session token upon sign-out
+  Future<void> removeFcmToken(String userId) async {
+    try {
+      await firestore.collection('active_sessions').doc(userId).delete();
+      await rtdb.ref('active_sessions/$userId/fcm_token').remove();
+      await messaging.deleteToken();
+      debugPrint('[FCM] Token revoked and active session cleared for $userId');
+    } catch (e) {
+      debugPrint('[FCM] Token removal notice: $e');
     }
   }
 

@@ -92,6 +92,13 @@ export interface RideDocument {
   rider_rating?: number | null;
   driver_rating?: number | null;
   review?: string | null;
+  rider_rated?: boolean;
+  driver_rated?: boolean;
+  rider_review?: string | null;
+  dispatch_stage?: number;
+  current_radius?: number;
+  next_expansion_at?: FirebaseFirestore.Timestamp;
+  dispatched_driver_ids?: string[];
 }
 
 export interface RidePinDocument {
@@ -144,6 +151,7 @@ export interface PlatformSettings {
     initial_radius_km: number; // default: 3.0 KM
     expanded_radius_km: number; // default: 5.0 KM
     max_radius_km: number; // default: 7.0 KM
+    expansion_interval_seconds: number; // default: 30s
     offer_timeout_seconds: number; // default: 30s
     ride_request_ttl_seconds: number; // default: 120s
     max_candidate_drivers: number; // default: 10
