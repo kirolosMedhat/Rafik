@@ -3,7 +3,7 @@ import 'dart:async';
 import '../../core/services/firebase_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+
 import 'package:url_launcher/url_launcher.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/pill_badge.dart';
@@ -41,7 +41,7 @@ class InRideChatSheet extends StatefulWidget {
 class _InRideChatSheetState extends State<InRideChatSheet> {
   final TextEditingController _textController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
-  RealtimeChannel? _chatChannel;
+
   StreamSubscription? _firebaseChatSub;
 
   final List<ChatMessage> _messages = [];
@@ -64,7 +64,6 @@ class _InRideChatSheetState extends State<InRideChatSheet> {
   @override
   void initState() {
     super.initState();
-    _initChatChannel();
     _seedInitialMessages();
     _initFirebaseChat();
   }
@@ -106,75 +105,12 @@ class _InRideChatSheetState extends State<InRideChatSheet> {
       }
     });
   }
-  void _initChatChannel() async {
-    try {
-      final supabase = Supabase.instance.client;
-      final myId = supabase.auth.currentUser?.id;
-
-      // 1. Fetch past messages
-      final past = await supabase
-          .from('messages')
-          .select('*')
-          .eq('ride_id', widget.rideId)
-          .order('created_at', ascending: true);
-
-      if (mounted && past.isNotEmpty) {
-        setState(() {
-          _messages.clear();
-          for (final m in past) {
-            final senderId = m['sender_id']?.toString();
-            final isMine = senderId == myId;
-            _messages.add(ChatMessage(
-              sender: isMine ? widget.myRole : (widget.myRole == 'rider' ? 'driver' : 'rider'),
-              text: m['body']?.toString() ?? '',
-              time: 'Recent',
-            ));
-          }
-        });
-        _scrollToBottom();
-      }
-
-      // 2. Subscribe to incoming messages in real-time
-      _chatChannel = supabase.channel('chat-${widget.rideId}')
-        ..onPostgresChanges(
-          event: PostgresChangeEvent.insert,
-          schema: 'public',
-          table: 'messages',
-          filter: PostgresChangeFilter(
-            type: PostgresChangeFilterType.eq,
-            column: 'ride_id',
-            value: widget.rideId,
-          ),
-          callback: (payload) {
-            final rec = payload.newRecord;
-            final senderId = rec['sender_id']?.toString();
-            final body = rec['body']?.toString();
-            if (body != null && senderId != myId) {
-              HapticFeedback.lightImpact();
-              if (mounted) {
-                setState(() {
-                  _messages.add(ChatMessage(
-                    sender: widget.myRole == 'rider' ? 'driver' : 'rider',
-                    text: body,
-                    time: 'Just now',
-                  ));
-                });
-                _scrollToBottom();
-              }
-            }
-          },
-        )
-        ..subscribe();
-    } catch (e) {
-      debugPrint('[Rafik Chat] Channel init notice: $e');
-    }
-  }
 
   @override
   void dispose() {
     _textController.dispose();
     _scrollController.dispose();
-    _chatChannel?.unsubscribe();
+
     _firebaseChatSub?.cancel();
     super.dispose();
   }
@@ -208,13 +144,14 @@ class _InRideChatSheetState extends State<InRideChatSheet> {
     _scrollToBottom();
 
     try {
-      final user = Supabase.instance.client.auth.currentUser;
+      final user = FirebaseService().currentUser;
       if (user != null) {
-        await Supabase.instance.client.from('messages').insert({
-          'ride_id': widget.rideId,
-          'sender_id': user.id,
-          'body': cleanText,
-        });
+        await FirebaseService().sendRideMessage(
+          rideId: widget.rideId,
+          senderId: user.uid,
+          senderName: widget.myRole == 'driver' ? 'Captain' : 'Passenger',
+          text: cleanText,
+        );
       }
     } catch (e) {
       debugPrint('Chat insert notice: $e');

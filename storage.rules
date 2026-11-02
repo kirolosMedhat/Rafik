@@ -1,0 +1,50 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    // Default Deny
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && (
+        request.auth.token.role == 'admin' ||
+        request.auth.token.admin == true
+      );
+    }
+
+    function isValidImage(maxSizeMb) {
+      return request.resource != null &&
+        request.resource.size < maxSizeMb * 1024 * 1024 &&
+        request.resource.contentType.matches('image/(jpeg|png|webp)');
+    }
+
+    // 1. Private Driver KYC Documents Vault (National ID, Driving License, Vehicle Registration)
+    match /driver_documents/{driverId}/{docFileName} {
+      allow read: if isOwner(driverId) || isAdmin();
+      allow write: if isOwner(driverId) && isValidImage(5);
+    }
+
+    // 2. Private Rider Identity Verifications Vault (Rafik Girl Government ID & Selfie Proofs)
+    match /identity_verifications/{userId}/{docFileName} {
+      allow read: if isOwner(userId) || isAdmin();
+      allow write: if isOwner(userId) && isValidImage(5);
+    }
+
+    // 3. User Profile Photos (Avatars)
+    match /avatars/{userId}/{fileName} {
+      allow read: if isAuthenticated();
+      allow write: if isOwner(userId) && isValidImage(2);
+    }
+  }
+}

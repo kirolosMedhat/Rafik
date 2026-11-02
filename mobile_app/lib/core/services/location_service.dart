@@ -176,7 +176,101 @@ class LocationService {
     return distance.bearing(start, end);
   }
 
+  // =========================================================================
+  // DRIVER GPS TELEMETRY & BATTERY-OPTIMIZED STREAMING
+  // =========================================================================
+  StreamSubscription<Position>? _driverTelemetrySubscription;
+  Timer? _stationaryHeartbeatTimer;
+  Position? _lastPublishedPosition;
+  DateTime? _lastPublishedTime;
+
+  /// Starts throttled, battery-optimized driver telemetry stream
+  /// - Distance filter: 10 meters
+  /// - Moving updates: every 3-4 seconds
+  /// - Stationary heartbeat: every 10 seconds
+  void startDriverTelemetryStream({
+    required void Function(double lat, double lng, double heading, double speed) onPublish,
+    TelemetryConfig config = const TelemetryConfig(),
+  }) {
+    stopDriverTelemetryStream();
+
+    final locationSettings = LocationSettings(
+      accuracy: LocationAccuracy.high,
+      distanceFilter: config.minMovementMeters,
+    );
+
+    _driverTelemetrySubscription = Geolocator.getPositionStream(
+      locationSettings: locationSettings,
+    ).listen((position) {
+      final now = DateTime.now();
+      final speedKmh = position.speed * 3.6; // m/s to km/h
+      final isMoving = speedKmh >= config.stationarySpeedKmhThreshold;
+
+      if (isMoving) {
+        if (_lastPublishedTime == null || now.difference(_lastPublishedTime!) >= config.movingInterval) {
+          _lastPublishedTime = now;
+          _lastPublishedPosition = position;
+          onPublish(position.latitude, position.longitude, position.heading, speedKmh);
+        }
+      } else {
+        if (_lastPublishedPosition == null) {
+          _lastPublishedTime = now;
+          _lastPublishedPosition = position;
+          onPublish(position.latitude, position.longitude, position.heading, 0.0);
+        }
+      }
+    }, onError: (e) {
+      debugPrint('[LocationService] GPS stream error: $e');
+    });
+
+    // Heartbeat timer for stationary driver: sends keep-alive every 10s to keep RTDB presence fresh
+    _stationaryHeartbeatTimer = Timer.periodic(config.stationaryInterval, (_) async {
+      final now = DateTime.now();
+      if (_lastPublishedTime == null || now.difference(_lastPublishedTime!) >= config.stationaryInterval) {
+        if (_lastPublishedPosition != null) {
+          _lastPublishedTime = now;
+          onPublish(
+            _lastPublishedPosition!.latitude,
+            _lastPublishedPosition!.longitude,
+            _lastPublishedPosition!.heading,
+            0.0,
+          );
+        } else {
+          final fallback = await getCurrentLocation();
+          _lastPublishedTime = now;
+          onPublish(fallback.latitude, fallback.longitude, 0.0, 0.0);
+        }
+      }
+    });
+  }
+
+  /// Stops driver telemetry stream immediately when offline
+  void stopDriverTelemetryStream() {
+    _driverTelemetrySubscription?.cancel();
+    _driverTelemetrySubscription = null;
+    _stationaryHeartbeatTimer?.cancel();
+    _stationaryHeartbeatTimer = null;
+    _lastPublishedPosition = null;
+    _lastPublishedTime = null;
+  }
+
   void dispose() {
+    stopDriverTelemetryStream();
     _positionStream?.cancel();
   }
+}
+
+/// Configurable settings for driver GPS telemetry and battery preservation
+class TelemetryConfig {
+  final int minMovementMeters;
+  final Duration movingInterval;
+  final Duration stationaryInterval;
+  final double stationarySpeedKmhThreshold;
+
+  const TelemetryConfig({
+    this.minMovementMeters = 10,
+    this.movingInterval = const Duration(seconds: 3),
+    this.stationaryInterval = const Duration(seconds: 10),
+    this.stationarySpeedKmhThreshold = 1.0,
+  });
 }

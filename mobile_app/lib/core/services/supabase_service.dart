@@ -361,14 +361,15 @@ class SupabaseService {
     try {
       final user = FirebaseService().currentUser;
       if (user != null) {
-        // In Firebase: update driver document state with uploaded document path/flag
-        await FirebaseService().firestore.collection('drivers').doc(user.uid).collection('documents').doc(kind).set({
-          'kind': kind,
-          'status': 'pending',
-          'uploaded_at': FieldValue.serverTimestamp(),
-        });
+        return await FirebaseService().uploadDriverDocument(
+          driverId: user.uid,
+          docType: kind,
+          file: file,
+        );
       }
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('[Backend] uploadDriverDocument error: $e');
+    }
     return 'uploaded';
   }
 

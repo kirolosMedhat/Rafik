@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import '../../core/services/supabase_service.dart';
+import '../../core/services/firebase_service.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/pill_badge.dart';
 
@@ -48,7 +48,7 @@ class _RatingDialogState extends State<RatingDialog> {
     setState(() => _isSubmitting = true);
     HapticFeedback.mediumImpact();
 
-    await SupabaseService().submitDriverRating(
+    await FirebaseService().rateRide(
       rideId: widget.rideId,
       rating: _selectedRating.toDouble(),
       badges: _selectedBadges.toList(),

@@ -2,10 +2,13 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'core/services/firebase_service.dart';
 import 'core/theme/app_theme.dart';
-import 'features/splash/splash_screen.dart';
 import 'features/auth/auth_screen.dart';
-import 'features/rider/rider_home_screen.dart';
+import 'features/driver/driver_onboarding_screen.dart';
+import 'features/driver/driver_pending_screen.dart';
 import 'features/driver/driver_radar_screen.dart';
+import 'features/driver/driver_rejected_screen.dart';
+import 'features/rider/rider_home_screen.dart';
+import 'features/splash/splash_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -29,7 +32,7 @@ class _GoSafeAppState extends State<GoSafeApp> {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Go Safe - جو سيف',
+      title: 'Rafik Go Safe - رَفِيق',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.darkTheme,
       home: _showSplash
@@ -44,7 +47,7 @@ class _GoSafeAppState extends State<GoSafeApp> {
                 final user = snapshot.data ?? FirebaseService().currentUser;
                 if (user != null) {
                   return FutureBuilder<Map<String, dynamic>?>(
-                    future: FirebaseService().getCurrentUserProfile(),
+                    future: FirebaseService().getUserProfile(user.uid),
                     builder: (context, profSnap) {
                       if (profSnap.connectionState == ConnectionState.waiting) {
                         return const Scaffold(
@@ -54,9 +57,36 @@ class _GoSafeAppState extends State<GoSafeApp> {
                           ),
                         );
                       }
-                      final role = profSnap.data?['role']?.toString();
+
+                      final profile = profSnap.data;
+                      if (profile == null) {
+                        FirebaseService().signOut();
+                        return const AuthScreen();
+                      }
+
+                      if (profile['is_active'] == false) {
+                        FirebaseService().signOut();
+                        return const AuthScreen();
+                      }
+
+                      final role = profile['role']?.toString().toLowerCase();
                       if (role == 'driver') {
-                        return const DriverRadarScreen();
+                        final status = profile['status']?.toString().toLowerCase() ?? 'pending';
+                        if (status == 'approved') {
+                          return const DriverRadarScreen();
+                        } else if (status == 'rejected') {
+                          return DriverRejectedScreen(
+                            rejectionReason: profile['rejection_reason']?.toString(),
+                          );
+                        } else if (status == 'pending') {
+                          return const DriverPendingScreen();
+                        } else {
+                          return DriverOnboardingScreen(
+                            driverId: user.uid,
+                            driverGender: profile['gender']?.toString() ?? 'female',
+                            isUperGirlEnrolled: profile['gender'] == 'female',
+                          );
+                        }
                       }
                       return const RiderHomeScreen();
                     },

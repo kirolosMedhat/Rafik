@@ -3,10 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/services/location_service.dart';
 import '../../core/services/persistent_storage.dart';
-import '../../core/services/supabase_service.dart';
 import '../../core/services/firebase_service.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/pill_badge.dart';
@@ -22,7 +20,7 @@ class DriverRadarScreen extends StatefulWidget {
   State<DriverRadarScreen> createState() => _DriverRadarScreenState();
 }
 
-class _DriverRadarScreenState extends State<DriverRadarScreen> {
+class _DriverRadarScreenState extends State<DriverRadarScreen> with WidgetsBindingObserver {
   final MapController _mapController = MapController();
   final LatLng _driverLocation = const LatLng(30.0480, 31.2390);
 
@@ -35,31 +33,39 @@ class _DriverRadarScreenState extends State<DriverRadarScreen> {
   // Real Driver Profile Loaded Dynamically
   String _driverName = 'Captain';
   String _driverPhone = '+20 100 000 0000';
-  String _driverGender = 'female';
   bool _isUperGirlEnrolled = true;
   String _incomingTier = 'standard';
 
-  // Realtime Supabase Dispatch & Telemetry Channels
-  RealtimeChannel? _dispatchChannel;
-  RealtimeChannel? _telemetryChannel;
+  // Realtime Firebase Dispatch & Telemetry
+  StreamSubscription? _firebaseOffersSub;
+  String _incomingOfferId = '';
   String _incomingRideId = '';
   String _incomingPickupName = 'Zamalek (شارع 26 يوليو)';
   String _incomingDropoffName = 'New Cairo (التجمع الخامس - AUC)';
   double _incomingDistanceKm = 28.4;
   double _incomingFareEgp = 299.0;
-  String _targetPin = '7429';
 
   // Active Trip State
   bool _tripAccepted = false;
   final TextEditingController _pinInputController = TextEditingController();
   bool _pinVerified = false;
-  Timer? _locationStreamTimer;
+  bool _isPinLocked = false;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _loadDriverSession();
-    _initRealtimeChannel();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.detached) {
+      final user = FirebaseService().currentUser;
+      if (user != null) {
+        FirebaseService().configureDriverPresence(driverId: user.uid, isOnline: false);
+      }
+    }
   }
 
   void _openChat() {
@@ -83,24 +89,22 @@ class _DriverRadarScreenState extends State<DriverRadarScreen> {
     );
   }
 
-  void _initRealtimeChannel() {
-    // Subscriptions managed via _subscribeToOffers()
-  }
-
   Future<void> _loadDriverSession() async {
-    final prof = await SupabaseService().fetchProfile();
-    final drv = await SupabaseService().fetchDriverStatus();
-    if (mounted) {
-      setState(() {
-        _driverName = prof?['full_name'] ?? 'Captain';
-        _driverPhone = prof?['phone'] ?? '';
-        _driverGender = prof?['gender'] ?? 'female';
-        _isUperGirlEnrolled = prof?['gender_verified'] == true;
-        _isOnline = drv?['is_online'] == true || true; // Default online so incoming requests appear immediately
-      });
-      if (_isOnline) {
-        _startLocationStreaming();
-        _subscribeToOffers();
+    final user = FirebaseService().currentUser;
+    if (user != null) {
+      final prof = await FirebaseService().getUserProfile(user.uid);
+      final drv = await FirebaseService().getDriverProfile(user.uid);
+      if (mounted) {
+        setState(() {
+          _driverName = prof?['full_name'] ?? 'Captain';
+          _driverPhone = user.phoneNumber ?? prof?['phone'] ?? '';
+          _isUperGirlEnrolled = prof?['gender_verified'] == true;
+          _isOnline = drv?['is_online'] == true;
+        });
+        if (_isOnline) {
+          _startLocationStreaming();
+          _subscribeToOffers();
+        }
       }
     }
   }
@@ -108,53 +112,56 @@ class _DriverRadarScreenState extends State<DriverRadarScreen> {
   @override
   void dispose() {
     _countdownTimer?.cancel();
-    _locationStreamTimer?.cancel();
+    LocationService().stopDriverTelemetryStream();
     _firebaseOffersSub?.cancel();
+    final user = FirebaseService().currentUser;
+    if (user != null) {
+      FirebaseService().configureDriverPresence(driverId: user.uid, isOnline: false);
+    }
+    FirebaseService().cancelDriverPresence();
     _pinInputController.dispose();
-    _dispatchChannel?.unsubscribe();
-    _telemetryChannel?.unsubscribe();
+    WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
 
   void _startLocationStreaming() {
-    _locationStreamTimer?.cancel();
-    _firebaseOffersSub?.cancel();
-    _locationStreamTimer = Timer.periodic(const Duration(seconds: 5), (timer) async {
-      if (!mounted || !_isOnline) {
-        timer.cancel();
-        return;
-      }
-      try {
-        final loc = await LocationService().getCurrentLocation();
-        await SupabaseService().updateDriverLocation(
-          lat: loc.latitude,
-          lng: loc.longitude,
-          heading: 45.0,
-        );
-      } catch (e) {
-        debugPrint('[Driver Location] Notice: $e');
-      }
-    });
+    final user = FirebaseService().currentUser;
+    if (user == null || !_isOnline) return;
+
+    LocationService().startDriverTelemetryStream(
+      onPublish: (lat, lng, heading, speed) {
+        FirebaseService().updateDriverTelemetry(
+          driverId: user.uid,
+          lat: lat,
+          lng: lng,
+          heading: heading,
+          speed: speed,
+        ).catchError((e) {
+          debugPrint('[Driver Telemetry] Publish notice: $e');
+        });
+      },
+    );
   }
 
-  StreamSubscription? _firebaseOffersSub;
-
   void _subscribeToOffers() {
+    final user = FirebaseService().currentUser;
+    if (user == null) return;
+
     _firebaseOffersSub?.cancel();
-    _firebaseOffersSub = FirebaseService().streamAvailableRides().listen((snapshot) {
+    _firebaseOffersSub = FirebaseService().streamDriverOffers(user.uid).listen((snapshot) {
       for (var change in snapshot.docChanges) {
         final data = change.doc.data();
-        if (data != null && data['status'] == 'requested' && !_tripAccepted) {
+        if (data != null && data['status'] == 'pending' && !_tripAccepted) {
           HapticFeedback.heavyImpact();
           if (mounted) {
             setState(() {
-              _incomingRideId = change.doc.id;
+              _incomingOfferId = change.doc.id;
+              _incomingRideId = data['ride_id']?.toString() ?? change.doc.id;
               _incomingTier = data['tier']?.toString() ?? 'standard';
               _incomingPickupName = data['pickup_address']?.toString() ?? 'Pickup Location';
               _incomingDropoffName = data['dropoff_address']?.toString() ?? 'Destination';
               _incomingDistanceKm = (data['distance_km'] as num?)?.toDouble() ?? 5.0;
               _incomingFareEgp = (data['fare_egp'] as num?)?.toDouble() ?? 65.0;
-              _targetPin = data['pin']?.toString() ?? '7429';
               _hasIncomingRequest = true;
               _countdownSeconds = 30;
             });
@@ -163,66 +170,24 @@ class _DriverRadarScreenState extends State<DriverRadarScreen> {
           break;
         }
       }
+    }, onError: (e) {
+      debugPrint('[Driver Radar] Offers stream notice: $e');
     });
-
-    final user = Supabase.instance.client.auth.currentUser;
-    if (user == null) return;
-
-    _dispatchChannel?.unsubscribe();
-    _dispatchChannel = Supabase.instance.client.channel('driver-offers-${user.id}')
-      ..onPostgresChanges(
-        event: PostgresChangeEvent.insert,
-        schema: 'public',
-        table: 'ride_offers',
-        filter: PostgresChangeFilter(
-          type: PostgresChangeFilterType.eq,
-          column: 'driver_id',
-          value: user.id,
-        ),
-        callback: (payload) async {
-          final rec = payload.newRecord;
-          final status = rec['status']?.toString();
-          final rideId = rec['ride_id']?.toString();
-          if (status == 'pending' && rideId != null && !_tripAccepted) {
-            // Fetch ride details
-            final rideData = await Supabase.instance.client
-                .from('rides')
-                .select('*')
-                .eq('id', rideId)
-                .maybeSingle();
-
-            if (rideData != null && mounted) {
-              HapticFeedback.heavyImpact();
-              setState(() {
-                _incomingRideId = rideId;
-                _incomingTier = rideData['tier']?.toString() ?? 'standard';
-                _incomingPickupName = rideData['pickup_address']?.toString() ?? 'Pickup Location';
-                _incomingDropoffName = rideData['dropoff_address']?.toString() ?? 'Destination';
-                _incomingDistanceKm = (rideData['distance_km'] as num?)?.toDouble() ?? 5.0;
-                _incomingFareEgp = (rideData['fare_egp'] as num?)?.toDouble() ?? 65.0;
-                _hasIncomingRequest = true;
-                _countdownSeconds = 30;
-              });
-              _startCountdownTimer();
-            }
-          }
-        },
-      )
-      ..subscribe();
   }
 
   void _toggleOnline(bool value) async {
+    final user = FirebaseService().currentUser;
+    if (user == null) return;
+
     try {
-      await SupabaseService().setDriverOnline(value);
+      FirebaseService().configureDriverPresence(driverId: user.uid, isOnline: value);
       setState(() {
         _isOnline = value;
         _isBiometricallyVerified = true;
         if (!_isOnline) {
           _hasIncomingRequest = false;
           _countdownTimer?.cancel();
-          _locationStreamTimer?.cancel();
-    _firebaseOffersSub?.cancel();
-          _dispatchChannel?.unsubscribe();
+          LocationService().stopDriverTelemetryStream();
           _firebaseOffersSub?.cancel();
         } else {
           _startLocationStreaming();
@@ -256,12 +221,25 @@ class _DriverRadarScreenState extends State<DriverRadarScreen> {
     _countdownTimer?.cancel();
     HapticFeedback.mediumImpact();
 
+    final user = FirebaseService().currentUser;
+    if (user == null) return;
+
     try {
-      await SupabaseService().acceptRide(_incomingRideId);
-      setState(() {
-        _hasIncomingRequest = false;
-        _tripAccepted = true;
-      });
+      final success = await FirebaseService().acceptRide(
+        offerId: _incomingOfferId,
+        rideId: _incomingRideId,
+        driverId: user.uid,
+        driverName: _driverName,
+        driverPhone: _driverPhone,
+        vehiclePlate: 'Cairo Plate',
+        vehicleModel: 'Standard Sedan',
+      );
+      if (success) {
+        setState(() {
+          _hasIncomingRequest = false;
+          _tripAccepted = true;
+        });
+      }
     } catch (e) {
       setState(() => _hasIncomingRequest = false);
       final err = e.toString();
@@ -277,14 +255,15 @@ class _DriverRadarScreenState extends State<DriverRadarScreen> {
   void _declineRide() async {
     _countdownTimer?.cancel();
     setState(() => _hasIncomingRequest = false);
-    if (_incomingRideId.isNotEmpty) {
-      await SupabaseService().declineOffer(_incomingRideId);
-    }
   }
 
   void _markArrived() async {
     try {
-      await SupabaseService().markArrived(_incomingRideId);
+      await FirebaseService().markArrived(
+        _incomingRideId,
+        currentLat: _driverLocation.latitude,
+        currentLng: _driverLocation.longitude,
+      );
       HapticFeedback.mediumImpact();
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -312,14 +291,17 @@ class _DriverRadarScreenState extends State<DriverRadarScreen> {
     }
 
     try {
-      final res = await SupabaseService().startRide(
+      final res = await FirebaseService().startRide(
         rideId: _incomingRideId,
         pin: enteredPin,
       );
 
       if (res['ok'] == true) {
         HapticFeedback.heavyImpact();
-        setState(() => _pinVerified = true);
+        setState(() {
+          _pinVerified = true;
+          _isPinLocked = false;
+        });
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
@@ -329,24 +311,21 @@ class _DriverRadarScreenState extends State<DriverRadarScreen> {
           );
         }
       } else {
-        HapticFeedback.vibrate();
-        final attemptsLeft = res['attempts_left'] ?? 0;
-        final error = res['error'];
-        String msg = 'Invalid PIN.';
-        if (error == 'pin_locked') {
-          msg = 'Trip start LOCKED due to 3 incorrect attempts. Please contact dispatch.';
-        } else if (error == 'wrong_pin') {
-          msg = 'Incorrect PIN! $attemptsLeft attempts remaining before lockout.';
-        }
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(msg), backgroundColor: AppTheme.berryCore),
-          );
-        }
+        final locked = res['locked'] == true;
+        setState(() {
+          _isPinLocked = locked;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(res['error'] ?? 'Incorrect PIN.'),
+            backgroundColor: AppTheme.berryCore,
+            duration: const Duration(seconds: 4),
+          ),
+        );
       }
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error: $e'), backgroundColor: AppTheme.berryCore),
+        SnackBar(content: Text('Verification error: $e'), backgroundColor: AppTheme.berryCore),
       );
     }
   }
@@ -406,8 +385,15 @@ class _DriverRadarScreenState extends State<DriverRadarScreen> {
   }
 
   Future<void> _finalizeTripCompletion() async {
+    final user = FirebaseService().currentUser;
+    if (user == null) return;
+
     try {
-      await SupabaseService().completeRide(_incomingRideId);
+      await FirebaseService().completeRide(
+        rideId: _incomingRideId,
+        driverId: user.uid,
+        fareEgp: _incomingFareEgp,
+      );
       setState(() {
         _tripAccepted = false;
         _pinVerified = false;
@@ -911,13 +897,23 @@ class _DriverRadarScreenState extends State<DriverRadarScreen> {
                   ),
                   const SizedBox(width: 12),
                   ElevatedButton(
-                    onPressed: _verifyPin,
+                    onPressed: _isPinLocked ? null : _verifyPin,
                     style: ElevatedButton.styleFrom(backgroundColor: AppTheme.sageSafe),
                     child: const Text('VERIFY & START'),
                   ),
                 ],
               ),
               const SizedBox(height: 10),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: _markArrived,
+                  style: ElevatedButton.styleFrom(backgroundColor: AppTheme.sageSafe),
+                  icon: const Icon(Icons.location_on, size: 16),
+                  label: const Text('I HAVE ARRIVED AT PICKUP'),
+                ),
+              ),
+              const SizedBox(height: 8),
               SizedBox(
                 width: double.infinity,
                 child: OutlinedButton.icon(

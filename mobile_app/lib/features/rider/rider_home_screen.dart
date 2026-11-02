@@ -6,7 +6,7 @@ import 'package:latlong2/latlong.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../core/services/persistent_storage.dart';
-import '../../core/services/supabase_service.dart';
+
 import '../../core/services/firebase_service.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/pill_badge.dart';
@@ -135,10 +135,8 @@ class _RiderHomeScreenState extends State<RiderHomeScreen> {
 
   RideState _rideState = RideState.idle;
   RideTier _selectedTier = RideTier.rafikStandard;
-  String _riderGender = 'female';
   bool _uperGirlEligible = true;
   String _securityPin = '----'; // Fetched securely from isolated ride_pins table
-  String? _assignedDriverId;
 
   // Payment Method Selection
   PaymentMethodOption _selectedPayment = const PaymentMethodOption(
@@ -154,7 +152,6 @@ class _RiderHomeScreenState extends State<RiderHomeScreen> {
   LatLng? _driverLiveLocation;
   double _driverHeading = 45.0;
   int _driverEtaMinutes = 3;
-  double _driverDistanceRemainingKm = 1.2;
   Timer? _driverMovementTimer;
 
   // Realtime Supabase Dispatch Channel
@@ -179,7 +176,6 @@ class _RiderHomeScreenState extends State<RiderHomeScreen> {
     final uperGirlActive = await PersistentStorage.isUperGirlEnabled();
     if (mounted) {
       setState(() {
-        _riderGender = gender;
         _uperGirlEligible = (gender == 'female');
         _selectedTier = (_uperGirlEligible && uperGirlActive)
             ? RideTier.rafikGirl
@@ -192,6 +188,9 @@ class _RiderHomeScreenState extends State<RiderHomeScreen> {
   void dispose() {
     _driverMovementTimer?.cancel();
     _dispatchChannel?.unsubscribe();
+    _rtdbLocationSub?.cancel();
+    _firebaseLocationSub?.cancel();
+    _firebaseRideSub?.cancel();
     super.dispose();
   }
 
@@ -201,148 +200,129 @@ class _RiderHomeScreenState extends State<RiderHomeScreen> {
 
   StreamSubscription? _firebaseRideSub;
   StreamSubscription? _firebaseLocationSub;
+  StreamSubscription? _rtdbLocationSub;
 
   void _subscribeToRide(String rideId) {
+    _dispatchChannel?.unsubscribe();
+    _rtdbLocationSub?.cancel();
+    _firebaseLocationSub?.cancel();
     _firebaseRideSub?.cancel();
-    _firebaseRideSub = FirebaseService().streamRide(rideId).listen((snapshot) {
-      if (!snapshot.exists || !mounted) return;
-      final data = snapshot.data();
-      final status = data?['status']?.toString();
+
+    _firebaseRideSub = FirebaseService().streamRide(rideId).listen((snapshot) async {
+      final record = snapshot.data();
+      if (record == null) return;
+      final status = record['status']?.toString();
       if (status == null) return;
 
       if (status == 'accepted' && _rideState != RideState.driverAssigned && _rideState != RideState.inTrip) {
         HapticFeedback.heavyImpact();
-        final driverId = data?['driver_id']?.toString();
-        _assignedDriverId = driverId;
-        setState(() {
-          _driverName = data?['driver_name']?.toString() ?? 'Rafik Captain';
-          final carModel = data?['vehicle_model']?.toString() ?? 'Sedan';
-          final carPlate = data?['vehicle_plate']?.toString() ?? '';
-          _vehicleInfo = '$carModel ($carPlate)';
-          _securityPin = data?['pin']?.toString() ?? _securityPin;
-          _rideState = RideState.driverAssigned;
-        });
+        final driverId = record['driver_id']?.toString();
+
         if (driverId != null) {
+          final driverName = record['driver_name']?.toString() ?? 'Rafik Captain';
+          final vehiclePlate = record['vehicle_plate']?.toString() ?? '';
+          final vehicleModel = record['vehicle_model']?.toString() ?? '';
+          final vehicleInfo = vehiclePlate.isNotEmpty
+              ? '$vehicleModel ($vehiclePlate)'
+              : (vehicleModel.isNotEmpty ? vehicleModel : 'Standard Sedan');
+
+          if (mounted) {
+            setState(() {
+              _driverName = driverName;
+              _vehicleInfo = vehicleInfo;
+              _driverRating = 4.95;
+            });
+          }
+
           _subscribeToDriverLocation(driverId);
         }
-      } else if (status == 'arrived') {
+
+        final pin = await FirebaseService().fetchRidePin(rideId);
+        if (pin != null && mounted) {
+          setState(() => _securityPin = pin);
+        }
+
+        if (mounted) {
+          setState(() => _rideState = RideState.driverAssigned);
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Captain $_driverName accepted your ride!'),
+              backgroundColor: AppTheme.sageSafe,
+              duration: const Duration(seconds: 4),
+            ),
+          );
+        }
+      } else if (status == 'arrived' && _rideState == RideState.driverAssigned) {
         HapticFeedback.mediumImpact();
-        setState(() => _rideState = RideState.driverAssigned);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Captain has arrived at your pickup location!'),
+              backgroundColor: AppTheme.sageSafe,
+            ),
+          );
+        }
       } else if (status == 'in_progress' && _rideState != RideState.inTrip) {
+        HapticFeedback.mediumImpact();
+        if (mounted) {
+          setState(() => _rideState = RideState.inTrip);
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Trip started safely with PIN handshake.'),
+              backgroundColor: AppTheme.sageSafe,
+            ),
+          );
+        }
+      } else if (status == 'completed') {
         HapticFeedback.heavyImpact();
-        setState(() => _rideState = RideState.inTrip);
-      } else if (status == 'completed' || status == 'cancelled') {
-        setState(() => _rideState = RideState.idle);
+        if (mounted) {
+          _showTripCompletedDialog();
+        }
+      } else if (status == 'expired' || status == 'cancelled') {
+        if (mounted) {
+          setState(() {
+            _rideState = RideState.idle;
+            _activeRideId = '';
+          });
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(status == 'expired'
+                  ? 'No captains nearby at this moment. Please try again.'
+                  : 'The ride was cancelled.'),
+              backgroundColor: AppTheme.berryCore,
+            ),
+          );
+        }
       }
     });
-
-    _dispatchChannel?.unsubscribe();
-    final supabase = Supabase.instance.client;
-
-    _dispatchChannel = supabase.channel('rider-ride-$rideId')
-      ..onPostgresChanges(
-        event: PostgresChangeEvent.all,
-        schema: 'public',
-        table: 'rides',
-        filter: PostgresChangeFilter(
-          type: PostgresChangeFilterType.eq,
-          column: 'id',
-          value: rideId,
-        ),
-        callback: (payload) async {
-          final record = payload.newRecord;
-          final status = record['status']?.toString();
-          if (status == null) return;
-
-          if (status == 'accepted' && _rideState != RideState.driverAssigned && _rideState != RideState.inTrip) {
-            HapticFeedback.heavyImpact();
-            final driverId = record['driver_id']?.toString();
-            _assignedDriverId = driverId;
-
-            if (driverId != null) {
-              try {
-                final driverData = await supabase
-                    .from('drivers')
-                    .select('vehicle_make, vehicle_model, vehicle_plate, vehicle_color, profiles:user_id(full_name, rating_avg)')
-                    .eq('user_id', driverId)
-                    .maybeSingle();
-
-                if (driverData != null && mounted) {
-                  final prof = driverData['profiles'] as Map<String, dynamic>?;
-                  setState(() {
-                    _driverName = prof?['full_name']?.toString() ?? 'Rafik Captain';
-                    _driverRating = (prof?['rating_avg'] as num?)?.toDouble() ?? 5.0;
-                    _vehicleInfo = '${driverData['vehicle_make']} ${driverData['vehicle_model']} (${driverData['vehicle_plate']})';
-                  });
-                }
-              } catch (_) {}
-
-              _subscribeToDriverLocation(driverId);
-            }
-
-            final pin = await SupabaseService().fetchRidePin(rideId);
-            if (pin != null && mounted) {
-              setState(() => _securityPin = pin);
-            }
-
-            if (mounted) {
-              setState(() => _rideState = RideState.driverAssigned);
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text('Captain $_driverName accepted your ride!'),
-                  backgroundColor: AppTheme.sageSafe,
-                  duration: const Duration(seconds: 4),
-                ),
-              );
-            }
-          } else if (status == 'arrived' && _rideState == RideState.driverAssigned) {
-            HapticFeedback.mediumImpact();
-            if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Captain has arrived at your pickup location!'),
-                  backgroundColor: AppTheme.sageSafe,
-                ),
-              );
-            }
-          } else if (status == 'in_progress' && _rideState != RideState.inTrip) {
-            HapticFeedback.mediumImpact();
-            if (mounted) {
-              setState(() => _rideState = RideState.inTrip);
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Trip started safely with PIN handshake.'),
-                  backgroundColor: AppTheme.sageSafe,
-                ),
-              );
-            }
-          } else if (status == 'completed') {
-            HapticFeedback.heavyImpact();
-            if (mounted) {
-              _showTripCompletedDialog();
-            }
-          } else if (status == 'expired' || status == 'cancelled') {
-            if (mounted) {
-              setState(() {
-                _rideState = RideState.idle;
-                _activeRideId = '';
-              });
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text(status == 'expired'
-                      ? 'No captains nearby at this moment. Please try again.'
-                      : 'The ride was cancelled.'),
-                  backgroundColor: AppTheme.berryCore,
-                ),
-              );
-            }
-          }
-        },
-      )
-      ..subscribe();
   }
 
   void _subscribeToDriverLocation(String driverId) {
+    _rtdbLocationSub?.cancel();
+    _firebaseLocationSub?.cancel();
+
+    // Firebase Realtime Database Telemetry Stream (Authorized by active_rider_id)
+    _rtdbLocationSub = FirebaseService().streamAssignedDriverLocation(driverId).listen((event) {
+      if (!mounted) return;
+      final val = event.snapshot.value;
+      if (val is Map) {
+        final lat = (val['lat'] as num?)?.toDouble();
+        final lng = (val['lng'] as num?)?.toDouble();
+        final heading = (val['heading'] as num?)?.toDouble() ?? 0.0;
+        if (lat != null && lng != null) {
+          setState(() {
+            _driverLiveLocation = LatLng(lat, lng);
+            _driverHeading = heading;
+          });
+        }
+      }
+    }, onError: (e) {
+      debugPrint('[Rider Live Tracking] Stream notice: $e');
+    });
+  }
+
+  /* void _legacySubscribeToDriverLocation(String driverId) { return; }
+  void _unused(String driverId) {
     _firebaseLocationSub?.cancel();
     _firebaseLocationSub = FirebaseService().streamDriverLocation(driverId).listen((snapshot) {
       if (!snapshot.exists || !mounted) return;
@@ -356,7 +336,7 @@ class _RiderHomeScreenState extends State<RiderHomeScreen> {
       }
     });
 
-    final supabase = Supabase.instance.client;
+    return; /* Supabase channel removed in Phase 2C - RTDB telemetry active
     supabase.channel('rider-driver-loc-$driverId')
       ..onPostgresChanges(
         event: PostgresChangeEvent.all,
@@ -379,6 +359,8 @@ class _RiderHomeScreenState extends State<RiderHomeScreen> {
       )
       ..subscribe();
   }
+
+  */ */
 
   /// Calculates real-world road distance and computes fare preview
   void _recalculateFare() {
@@ -408,7 +390,7 @@ class _RiderHomeScreenState extends State<RiderHomeScreen> {
     HapticFeedback.mediumImpact();
 
     try {
-      final rideId = await SupabaseService().requestRide(
+      final rideId = await FirebaseService().requestRide(
         tier: _selectedTier == RideTier.rafikGirl ? 'rafik_girl' : 'standard',
         pickupAddress: _pickupPlace.name,
         pickupLat: _pickupPlace.location.latitude,
@@ -416,6 +398,8 @@ class _RiderHomeScreenState extends State<RiderHomeScreen> {
         dropoffAddress: _dropoffPlace.name,
         dropoffLat: _dropoffPlace.location.latitude,
         dropoffLng: _dropoffPlace.location.longitude,
+        distanceKm: _distanceKm,
+        fareEgp: _calculatedFare,
         paymentMethod: _selectedPayment.title,
       );
 
@@ -426,9 +410,9 @@ class _RiderHomeScreenState extends State<RiderHomeScreen> {
       if (!mounted) return;
       setState(() => _rideState = RideState.idle);
 
-      final err = e.toString();
+      final err = e.toString().toLowerCase();
       String userMessage = 'Unable to request ride: $e';
-      if (err.contains('rafik_girl_unauthorized')) {
+      if (err.contains('rafik_girl_unauthorized') || err.contains('female')) {
         userMessage = 'Rafik Girl requires identity verification. Please verify your ID first.';
       } else if (err.contains('active_ride_exists')) {
         userMessage = 'You already have an active ride request in progress.';
@@ -446,7 +430,7 @@ class _RiderHomeScreenState extends State<RiderHomeScreen> {
   void _triggerSos() async {
     if (_activeRideId.isNotEmpty) {
       try {
-        await SupabaseService().triggerSos(
+        await FirebaseService().triggerSos(
           rideId: _activeRideId,
           lat: _pickupPlace.location.latitude,
           lng: _pickupPlace.location.longitude,
@@ -1705,15 +1689,27 @@ class _RiderHomeScreenState extends State<RiderHomeScreen> {
     );
   }
 
-  void _cancelRide() {
-    _dispatchChannel?.sendBroadcastMessage(
-      event: 'ride_cancelled',
-      payload: {'ride_id': _activeRideId},
-    );
-    setState(() {
-      _rideState = RideState.idle;
-      _activeRideId = '';
-    });
+  void _cancelRide() async {
+    if (_activeRideId.isNotEmpty) {
+      try {
+        await FirebaseService().cancelRide(
+          rideId: _activeRideId,
+          cancelledBy: 'rider',
+          reason: 'Passenger cancelled request',
+        );
+      } catch (e) {
+        debugPrint('[Rider] Cancel notice: $e');
+      }
+    }
+    _firebaseRideSub?.cancel();
+    _rtdbLocationSub?.cancel();
+    _firebaseLocationSub?.cancel();
+    if (mounted) {
+      setState(() {
+        _rideState = RideState.idle;
+        _activeRideId = '';
+      });
+    }
   }
 
   void _showTripCompletedDialog() {

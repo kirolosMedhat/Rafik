@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -49,24 +50,49 @@ class PersistentStorage {
   }
 
   static Future<String> getUserGender() async {
-    final user = Supabase.instance.client.auth.currentUser;
-    final meta = user?.userMetadata;
-    return meta?['gender']?.toString() ?? 'female';
+    final fbUser = FirebaseAuth.instance.currentUser;
+    if (fbUser != null) {
+      return 'female';
+    }
+    try {
+      final user = Supabase.instance.client.auth.currentUser;
+      final meta = user?.userMetadata;
+      return meta?['gender']?.toString() ?? 'female';
+    } catch (_) {
+      return 'female';
+    }
   }
 
   static Future<Map<String, dynamic>?> getUserSession() async {
-    final user = Supabase.instance.client.auth.currentUser;
-    if (user == null) return null;
-    return {
-      'id': user.id,
-      'name': user.userMetadata?['full_name'] ?? 'Rafik User',
-      'phone': user.phone ?? '',
-      'role': user.userMetadata?['role'] ?? 'rider',
-      'gender': user.userMetadata?['gender'] ?? 'female',
-    };
+    final fbUser = FirebaseAuth.instance.currentUser;
+    if (fbUser != null) {
+      return {
+        'id': fbUser.uid,
+        'name': fbUser.displayName ?? 'Rafik User',
+        'phone': fbUser.phoneNumber ?? '',
+        'role': 'rider',
+        'gender': 'female',
+      };
+    }
+    try {
+      final user = Supabase.instance.client.auth.currentUser;
+      if (user == null) return null;
+      return {
+        'id': user.id,
+        'name': user.userMetadata?['full_name'] ?? 'Rafik User',
+        'phone': user.phone ?? '',
+        'role': user.userMetadata?['role'] ?? 'rider',
+        'gender': user.userMetadata?['gender'] ?? 'female',
+      };
+    } catch (_) {
+      return null;
+    }
   }
 
   static Future<void> clearSession() async {
+    try {
+      await FirebaseAuth.instance.signOut();
+    } catch (_) {}
     try {
       await Supabase.instance.client.auth.signOut();
     } catch (_) {}

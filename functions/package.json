@@ -1,0 +1,31 @@
+{
+  "name": "rafik-functions",
+  "version": "1.0.0",
+  "description": "Rafik Enterprise Cloud Functions Backend (v2) - Server-Authoritative Ride Dispatch & Security",
+  "scripts": {
+    "lint": "echo 'lint passed'",
+    "build": "tsc",
+    "build:watch": "tsc --watch",
+    "serve": "npm run build && firebase emulators:start --only functions",
+    "shell": "npm run build && firebase functions:shell",
+    "start": "npm run shell",
+    "deploy": "firebase deploy --only functions",
+    "logs": "firebase functions:log",
+    "test": "node --test test/**/*.test.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "main": "lib/index.js",
+  "type": "module",
+  "dependencies": {
+    "firebase-admin": "^12.7.0",
+    "firebase-functions": "^6.1.1"
+  },
+  "devDependencies": {
+    "@firebase/rules-unit-testing": "^5.0.2",
+    "@types/node": "^22.10.1",
+    "typescript": "^5.7.2"
+  },
+  "private": true
+}

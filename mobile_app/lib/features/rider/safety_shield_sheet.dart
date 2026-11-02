@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
-import '../../core/services/supabase_service.dart';
+import '../../core/services/firebase_service.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/pill_badge.dart';
 
@@ -40,7 +40,7 @@ class _SafetyShieldSheetState extends State<SafetyShieldSheet> {
   }
 
   Future<void> _loadEmergencyContacts() async {
-    final fetched = await SupabaseService().getEmergencyContacts();
+    final fetched = await FirebaseService().getEmergencyContacts();
     if (fetched.isNotEmpty && mounted) {
       setState(() {
         _contacts.clear();
@@ -148,7 +148,7 @@ class _SafetyShieldSheetState extends State<SafetyShieldSheet> {
                     'relation': relationCtrl.text.trim(),
                   });
                 });
-                await SupabaseService().addEmergencyContact(
+                await FirebaseService().addEmergencyContact(
                   name: nameCtrl.text.trim(),
                   phone: phoneCtrl.text.trim(),
                   relationship: relationCtrl.text.trim(),

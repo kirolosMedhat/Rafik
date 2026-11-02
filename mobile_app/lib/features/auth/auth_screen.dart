@@ -1,18 +1,31 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../core/services/firebase_service.dart';
 import '../../core/services/persistent_storage.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/utils/national_id_utils.dart';
+import '../../core/utils/phone_number_utils.dart';
+import '../driver/driver_onboarding_screen.dart';
+import '../driver/driver_pending_screen.dart';
 import '../driver/driver_radar_screen.dart';
+import '../driver/driver_rejected_screen.dart';
 import '../rider/rider_home_screen.dart';
+import 'otp_verification_sheet.dart';
 
 /// Rafik (رفيق) — Modern Authentication & Onboarding
+///
 /// Features:
-/// 1. Primary Log In page: Username or Mobile + Password.
-/// 2. "Register Now" modal prompt: Captain or Client selection.
-/// 3. Direct registration flows for Client and Captain.
-/// 4. Pure Firebase Auth + Cloud Firestore real-time integration.
-/// 5. Dynamic Jet Black (Male) vs Obsidian Berry (Female) themes with 1-tap Arabic toggle.
+/// 1. Real Firebase Phone Authentication with SMS OTP (+20 E.164 normalization).
+/// 2. Strict separation of Login and Registration workflows:
+///    - Login never silently creates a profile. Unregistered numbers are directed to registration.
+///    - Registration verifies OTP before creating profile documents in Firestore.
+/// 3. Role enforcement (Rider cannot access Driver app; Driver cannot access Rider app).
+/// 4. Driver approval gating:
+///    - Pending drivers routed to DriverPendingScreen.
+///    - Rejected drivers routed to DriverRejectedScreen.
+///    - Approved drivers enter DriverRadarScreen.
+/// 5. 1-Tap Arabic / English toggle & Dynamic Obsidian Berry vs Midnight Black themes.
 class AuthScreen extends StatefulWidget {
   final bool initialIsDriver;
   final String initialRole;
@@ -32,26 +45,24 @@ class _AuthScreenState extends State<AuthScreen> {
   bool _isLogin = true; // Default view is Log In
   String? _registerRole; // 'client' or 'captain'
   bool _isLoading = false;
-  bool _isArabic = false; // English default, instant Arabic switch
-  bool _obscurePassword = true;
+  bool _isArabic = true; // Arabic default for Egyptian market
 
   // Selected Gender (Controls Theme)
   String _selectedGender = 'female';
 
-  // Login Controllers
-  final TextEditingController _loginIdentifierController = TextEditingController();
-  final TextEditingController _loginPasswordController = TextEditingController();
+  // Login Controller
+  final TextEditingController _loginPhoneController = TextEditingController();
 
   // Registration Controllers
   final TextEditingController _regNameController = TextEditingController();
   final TextEditingController _regPhoneController = TextEditingController();
   final TextEditingController _regUsernameController = TextEditingController();
-  final TextEditingController _regPasswordController = TextEditingController();
 
   // Captain Specific Controllers
   final TextEditingController _regNationalIdController = TextEditingController();
   final TextEditingController _regVehiclePlateController = TextEditingController();
   final TextEditingController _regVehicleModelController = TextEditingController();
+  final TextEditingController _regVehicleMakeController = TextEditingController();
   final TextEditingController _regVehicleYearController = TextEditingController(text: '2022');
   final TextEditingController _regVehicleColorController = TextEditingController();
   final TextEditingController _regLicenseController = TextEditingController();
@@ -59,7 +70,28 @@ class _AuthScreenState extends State<AuthScreen> {
   @override
   void initState() {
     super.initState();
+    if (widget.initialIsDriver || widget.initialRole == 'driver') {
+      _registerRole = 'captain';
+    } else {
+      _registerRole = 'client';
+    }
     _loadSavedPreferences();
+  }
+
+  @override
+  void dispose() {
+    _loginPhoneController.dispose();
+    _regNameController.dispose();
+    _regPhoneController.dispose();
+    _regUsernameController.dispose();
+    _regNationalIdController.dispose();
+    _regVehiclePlateController.dispose();
+    _regVehicleModelController.dispose();
+    _regVehicleMakeController.dispose();
+    _regVehicleYearController.dispose();
+    _regVehicleColorController.dispose();
+    _regLicenseController.dispose();
+    super.dispose();
   }
 
   Future<void> _loadSavedPreferences() async {
@@ -102,17 +134,22 @@ class _AuthScreenState extends State<AuthScreen> {
         : AppTheme.roseGold; // Egyptian Rose Gold
   }
 
-  // ================= LOGIN ACTION =================
-  Future<void> _handleLogin() async {
-    final identifier = _loginIdentifierController.text.trim();
-    final password = _loginPasswordController.text.trim();
+  // ================= 1. LOGIN FLOW VIA PHONE OTP =================
+  Future<void> _handleLoginPhone() async {
+    final rawPhone = _loginPhoneController.text.trim();
 
-    if (identifier.isEmpty || password.isEmpty) {
+    if (rawPhone.isEmpty) {
       _showErrorSnackBar(
-        _isArabic
-            ? 'يرجى إدخال اسم المستخدم أو رقم الموبايل وكلمة المرور'
-            : 'Please enter your username/mobile and password',
+        _isArabic ? 'يرجى إدخال رقم الموبايل' : 'Please enter your mobile phone number',
       );
+      return;
+    }
+
+    String normalizedPhone;
+    try {
+      normalizedPhone = PhoneNumberUtils.normalizeEgyptianPhone(rawPhone);
+    } catch (e) {
+      _showErrorSnackBar(e.toString());
       return;
     }
 
@@ -120,42 +157,371 @@ class _AuthScreenState extends State<AuthScreen> {
     HapticFeedback.lightImpact();
 
     try {
-      final credential = await FirebaseService().signInWithUsernameOrMobile(
-        identifier: identifier,
-        password: password,
+      await FirebaseService().sendPhoneOtp(
+        rawPhone: normalizedPhone,
+        onCodeSent: (verificationId, resendToken) {
+          if (!mounted) return;
+          setState(() => _isLoading = false);
+
+          // Open 6-digit OTP verification sheet
+          showModalBottomSheet(
+            context: context,
+            isScrollControlled: true,
+            backgroundColor: Colors.transparent,
+            builder: (ctx) => OtpVerificationSheet(
+              phoneNumber: normalizedPhone,
+              verificationId: verificationId,
+              resendToken: resendToken,
+              gender: _selectedGender,
+              isArabic: _isArabic,
+              onVerified: (UserCredential credential) {
+                _onLoginOtpVerified(credential);
+              },
+            ),
+          );
+        },
+        onVerificationFailed: (FirebaseAuthException e) {
+          if (!mounted) return;
+          setState(() => _isLoading = false);
+          _showErrorSnackBar(
+            _isArabic
+                ? 'فشل إرسال كود التحقق: ${e.message ?? e.code}'
+                : 'Failed to send verification SMS: ${e.message ?? e.code}',
+          );
+        },
+        onVerificationCompleted: (PhoneAuthCredential credential) async {
+          // Instant verification (Android auto-retrieval)
+          try {
+            final authCred = await FirebaseService().auth.signInWithCredential(credential);
+            if (mounted) {
+              _onLoginOtpVerified(authCred);
+            }
+          } catch (_) {}
+        },
       );
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isLoading = false);
+        _showErrorSnackBar(e.toString());
+      }
+    }
+  }
 
-      final uid = credential.user?.uid;
-      if (uid == null) throw Exception('Authentication failed');
+  /// Evaluates account status and navigates to the appropriate screen after OTP is verified.
+  Future<void> _onLoginOtpVerified(UserCredential credential) async {
+    final user = credential.user;
+    if (user == null) return;
 
-      // Check profile to route to correct experience
-      final profile = await FirebaseService().getCurrentUserProfile();
-      final role = profile?['role']?.toString() ?? 'rider';
+    setState(() => _isLoading = true);
+    try {
+      final profile = await FirebaseService().getUserProfile(user.uid);
+
+      // CRITICAL: Never silently create an account on login!
+      if (profile == null) {
+        await FirebaseService().signOut();
+        if (!mounted) return;
+        _showErrorSnackBar(
+          _isArabic
+              ? 'هذا الرقم غير مسجل في رفيق. يرجى إنشاء حساب جديد أولاً.'
+              : 'This phone number is not registered yet. Please create an account.',
+        );
+        setState(() {
+          _isLogin = false;
+          _regPhoneController.text = _loginPhoneController.text;
+        });
+        return;
+      }
+
+      // Check account active status
+      if (profile['is_active'] == false) {
+        await FirebaseService().signOut();
+        if (!mounted) return;
+        _showErrorSnackBar(
+          _isArabic
+              ? 'تم تعطيل هذا الحساب. يرجى التواصل مع فريق الدعم.'
+              : 'This account has been deactivated. Please contact support.',
+        );
+        return;
+      }
+
+      // Enforce Role Separation
+      final role = profile['role']?.toString().toLowerCase() ?? 'rider';
+      final expectedRole = widget.initialRole;
+
+      if (expectedRole == 'driver' && role != 'driver') {
+        await FirebaseService().signOut();
+        if (!mounted) return;
+        _showErrorSnackBar(
+          _isArabic
+              ? 'هذا الحساب مسجل كعميل. يرجى استخدام تطبيق رفيق للركاب.'
+              : 'This account is registered as a Client. Please use the Rafik Rider application.',
+        );
+        return;
+      }
+
+      if (expectedRole == 'rider' && role != 'rider') {
+        await FirebaseService().signOut();
+        if (!mounted) return;
+        _showErrorSnackBar(
+          _isArabic
+              ? 'هذا الحساب مسجل ككابتن. يرجى استخدام تطبيق كابتن رفيق.'
+              : 'This account is registered as a Captain. Please use the Rafik Captain application.',
+        );
+        return;
+      }
 
       if (!mounted) return;
       HapticFeedback.heavyImpact();
 
+      // Route based on role and driver approval state
       if (role == 'driver') {
+        final status = profile['status']?.toString().toLowerCase() ?? 'pending';
+        if (status == 'approved') {
+          Navigator.pushAndRemoveUntil(
+            context,
+            MaterialPageRoute(builder: (_) => const DriverRadarScreen()),
+            (route) => false,
+          );
+        } else if (status == 'rejected') {
+          Navigator.pushAndRemoveUntil(
+            context,
+            MaterialPageRoute(
+              builder: (_) => DriverRejectedScreen(
+                rejectionReason: profile['rejection_reason']?.toString(),
+              ),
+            ),
+            (route) => false,
+          );
+        } else {
+          // Status is 'pending' or newly submitted
+          Navigator.pushAndRemoveUntil(
+            context,
+            MaterialPageRoute(builder: (_) => const DriverPendingScreen()),
+            (route) => false,
+          );
+        }
+      } else {
+        // Rider
+        Navigator.pushAndRemoveUntil(
+          context,
+          MaterialPageRoute(builder: (_) => const RiderHomeScreen()),
+          (route) => false,
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        _showErrorSnackBar('Login Error: $e');
+      }
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  // ================= 2. REGISTRATION FLOW VIA PHONE OTP =================
+  Future<void> _handleStartRegistration() async {
+    final isCaptain = _registerRole == 'captain';
+    final name = _regNameController.text.trim();
+    final rawPhone = _regPhoneController.text.trim();
+
+    if (name.isEmpty || rawPhone.isEmpty) {
+      _showErrorSnackBar(
+        _isArabic ? 'يرجى إدخال الاسم ورقم الموبايل' : 'Please enter your name and phone number',
+      );
+      return;
+    }
+
+    String normalizedPhone;
+    try {
+      normalizedPhone = PhoneNumberUtils.normalizeEgyptianPhone(rawPhone);
+    } catch (e) {
+      _showErrorSnackBar(e.toString());
+      return;
+    }
+
+    // Driver specific validations
+    if (isCaptain) {
+      final nationalId = _regNationalIdController.text.trim();
+      final vehiclePlate = _regVehiclePlateController.text.trim();
+      final vehicleModel = _regVehicleModelController.text.trim();
+
+      if (nationalId.isEmpty || vehiclePlate.isEmpty || vehicleModel.isEmpty) {
+        _showErrorSnackBar(
+          _isArabic
+              ? 'يرجى إكمال بيانات الرقم القومي والسيارة'
+              : 'Please complete all driver & vehicle fields',
+        );
+        return;
+      }
+
+      try {
+        NationalIdUtils.validate(nationalId);
+        if (!NationalIdUtils.matchesGender(nationalId, _selectedGender)) {
+          _showErrorSnackBar(
+            _isArabic
+                ? 'الرقم القومي غير متطابق مع الجنس المحدد'
+                : 'National ID gender does not match selected gender',
+          );
+          return;
+        }
+      } catch (e) {
+        _showErrorSnackBar(e.toString());
+        return;
+      }
+    }
+
+    // If user is already authenticated with this verified phone number, retry profile creation directly
+    final currentUser = FirebaseService().currentUser;
+    if (currentUser != null && currentUser.phoneNumber == normalizedPhone) {
+      debugPrint('[PhoneAuth] User already authenticated with verified phone $normalizedPhone. Retrying profile creation directly.');
+      await _onRegistrationUserVerified(currentUser, normalizedPhone);
+      return;
+    }
+
+    setState(() => _isLoading = true);
+    HapticFeedback.lightImpact();
+
+    try {
+      await FirebaseService().sendPhoneOtp(
+        rawPhone: normalizedPhone,
+        onCodeSent: (verificationId, resendToken) {
+          if (!mounted) return;
+          setState(() => _isLoading = false);
+
+          showModalBottomSheet(
+            context: context,
+            isScrollControlled: true,
+            backgroundColor: Colors.transparent,
+            builder: (ctx) => OtpVerificationSheet(
+              phoneNumber: normalizedPhone,
+              verificationId: verificationId,
+              resendToken: resendToken,
+              gender: _selectedGender,
+              isArabic: _isArabic,
+              onVerified: (UserCredential credential) {
+                if (credential.user != null) {
+                  _onRegistrationUserVerified(credential.user!, normalizedPhone);
+                }
+              },
+            ),
+          );
+        },
+        onVerificationFailed: (FirebaseAuthException e) {
+          if (!mounted) return;
+          setState(() => _isLoading = false);
+          _showErrorSnackBar(
+            _isArabic
+                ? 'فشل إرسال كود التحقق: ${e.message ?? e.code}'
+                : 'Failed to send SMS OTP: ${e.message ?? e.code}',
+          );
+        },
+        onVerificationCompleted: (PhoneAuthCredential credential) async {
+          try {
+            final authCred = await FirebaseService().auth.signInWithCredential(credential);
+            if (mounted && authCred.user != null) {
+              _onRegistrationUserVerified(authCred.user!, normalizedPhone);
+            }
+          } catch (_) {}
+        },
+      );
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isLoading = false);
+        _showErrorSnackBar(e.toString());
+      }
+    }
+  }
+
+  /// After SMS OTP verification, creates the profile in Firestore and routes to next step.
+  Future<void> _onRegistrationUserVerified(User user, String phone) async {
+    setState(() => _isLoading = true);
+    try {
+      // 1. Check if user already exists
+      final existingProfile = await FirebaseService().getUserProfile(user.uid);
+      if (existingProfile != null) {
+        if (!mounted) return;
+        _showErrorSnackBar(
+          _isArabic
+              ? 'هذا الرقم مسجل بالفعل في رفيق. جاري تحويلك لتسجيل الدخول.'
+              : 'This phone is already registered. Redirecting to login.',
+        );
+        setState(() {
+          _isLogin = true;
+          _loginPhoneController.text = phone;
+        });
+        return;
+      }
+
+      final isCaptain = _registerRole == 'captain';
+      final name = _regNameController.text.trim();
+      final username = _regUsernameController.text.trim();
+
+      if (isCaptain) {
+        // Register Captain
+        final nationalId = _regNationalIdController.text.trim();
+        final vehiclePlate = _regVehiclePlateController.text.trim();
+        final vehicleModel = _regVehicleModelController.text.trim();
+        final vehicleMake = _regVehicleMakeController.text.trim().isNotEmpty
+            ? _regVehicleMakeController.text.trim()
+            : vehicleModel.split(' ').first;
+        final vehicleColor = _regVehicleColorController.text.trim().isNotEmpty
+            ? _regVehicleColorController.text.trim()
+            : (_selectedGender == 'female' ? 'Pearl Rose' : 'Midnight Black');
+        final licenseNumber = _regLicenseController.text.trim().isNotEmpty
+            ? _regLicenseController.text.trim()
+            : 'LIC-$nationalId';
+        final vehicleYear = int.tryParse(_regVehicleYearController.text.trim()) ?? 2022;
+
+        await FirebaseService().registerDriverProfile(
+          uid: user.uid,
+          fullName: name,
+          phone: phone,
+          gender: _selectedGender,
+          nationalId: nationalId,
+          licenseNumber: licenseNumber,
+          vehicleMake: vehicleMake,
+          vehicleModel: vehicleModel,
+          vehicleYear: vehicleYear,
+          vehiclePlate: vehiclePlate,
+          vehicleColor: vehicleColor,
+          username: username.isNotEmpty ? username : null,
+        );
+
+        if (!mounted) return;
+        HapticFeedback.heavyImpact();
+
+        // Direct to 6-Sided KYC Document Vault
         Navigator.pushReplacement(
           context,
-          MaterialPageRoute(builder: (_) => const DriverRadarScreen()),
+          MaterialPageRoute(
+            builder: (_) => DriverOnboardingScreen(
+              driverId: user.uid,
+              driverGender: _selectedGender,
+              isUperGirlEnrolled: _selectedGender == 'female',
+            ),
+          ),
         );
       } else {
+        // Register Client / Rider
+        await FirebaseService().registerRiderProfile(
+          uid: user.uid,
+          fullName: name,
+          phone: phone,
+          gender: _selectedGender,
+          username: username.isNotEmpty ? username : null,
+        );
+
+        if (!mounted) return;
+        HapticFeedback.heavyImpact();
+
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(builder: (_) => const RiderHomeScreen()),
         );
       }
     } catch (e) {
-      if (!mounted) return;
-      debugPrint('[Login Error] $e');
-      String msg = _isArabic ? 'بيانات تسجيل الدخول غير صحيحة' : 'Invalid login credentials';
-      if (e.toString().contains('user-not-found')) {
-        msg = _isArabic ? 'الحساب غير موجود، يرجى التسجيل أولاً' : 'User account not found. Please register.';
-      } else if (e.toString().contains('wrong-password')) {
-        msg = _isArabic ? 'كلمة المرور غير صحيحة' : 'Incorrect password.';
+      if (mounted) {
+        _showErrorSnackBar('Registration Error: $e');
       }
-      _showErrorSnackBar(msg);
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -230,7 +596,7 @@ class _AuthScreenState extends State<AuthScreen> {
                 _buildRoleOptionCard(
                   title: _isArabic ? 'كابتن / سائق' : 'Captain / Driver',
                   subtitle: _isArabic
-                      ? 'انضم للأسطول وقد سيارتك مع 0% عمولة وأرباح 100%'
+                      ? 'انضم للأسطول مع 0% عمولة واحتفظ بـ 100% من أرباحك'
                       : 'Drive with 0% platform commission & keep 100% earnings',
                   icon: Icons.drive_eta_rounded,
                   color: AppTheme.roseGold,
@@ -310,106 +676,6 @@ class _AuthScreenState extends State<AuthScreen> {
     );
   }
 
-  // ================= CLIENT REGISTRATION =================
-  Future<void> _handleRegisterClient() async {
-    final name = _regNameController.text.trim();
-    final phone = _regPhoneController.text.trim();
-    final username = _regUsernameController.text.trim();
-    final password = _regPasswordController.text.trim();
-
-    if (name.isEmpty || phone.isEmpty || username.isEmpty || password.isEmpty) {
-      _showErrorSnackBar(_isArabic ? 'يرجى إكمال جميع الحقول المطلوبة' : 'Please fill all fields');
-      return;
-    }
-
-    if (password.length < 6) {
-      _showErrorSnackBar(_isArabic ? 'كلمة المرور يجب أن لا تقل عن 6 أحرف' : 'Password must be at least 6 characters');
-      return;
-    }
-
-    setState(() => _isLoading = true);
-    HapticFeedback.lightImpact();
-
-    try {
-      await FirebaseService().registerClient(
-        name: name,
-        phone: phone,
-        username: username,
-        password: password,
-        gender: _selectedGender,
-        isUperGirl: _selectedGender == 'female',
-      );
-
-      if (!mounted) return;
-      HapticFeedback.heavyImpact();
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (_) => const RiderHomeScreen()),
-      );
-    } catch (e) {
-      if (!mounted) return;
-      _showErrorSnackBar('Registration failed: $e');
-    } finally {
-      if (mounted) setState(() => _isLoading = false);
-    }
-  }
-
-  // ================= CAPTAIN REGISTRATION =================
-  Future<void> _handleRegisterCaptain() async {
-    final name = _regNameController.text.trim();
-    final phone = _regPhoneController.text.trim();
-    final username = _regUsernameController.text.trim();
-    final password = _regPasswordController.text.trim();
-    final nationalId = _regNationalIdController.text.trim();
-    final vehiclePlate = _regVehiclePlateController.text.trim();
-    final vehicleModel = _regVehicleModelController.text.trim();
-    final vehicleColor = _regVehicleColorController.text.trim();
-    final licenseNumber = _regLicenseController.text.trim();
-    final year = int.tryParse(_regVehicleYearController.text.trim()) ?? 2022;
-
-    if (name.isEmpty || phone.isEmpty || username.isEmpty || password.isEmpty ||
-        nationalId.isEmpty || vehiclePlate.isEmpty || vehicleModel.isEmpty) {
-      _showErrorSnackBar(_isArabic ? 'يرجى إكمال جميع بيانات الكابتن والمركبة' : 'Please complete all driver & vehicle fields');
-      return;
-    }
-
-    if (nationalId.length != 14) {
-      _showErrorSnackBar(_isArabic ? 'الرقم القومي يجب أن يتكون من 14 رقماً' : 'National ID must be exactly 14 digits');
-      return;
-    }
-
-    setState(() => _isLoading = true);
-    HapticFeedback.lightImpact();
-
-    try {
-      await FirebaseService().registerCaptain(
-        name: name,
-        phone: phone,
-        username: username,
-        password: password,
-        gender: _selectedGender,
-        nationalId: nationalId,
-        vehiclePlate: vehiclePlate,
-        vehicleModel: vehicleModel,
-        vehicleYear: year,
-        vehicleColor: vehicleColor.isNotEmpty ? vehicleColor : 'White',
-        licenseNumber: licenseNumber.isNotEmpty ? licenseNumber : 'LIC-$nationalId',
-      );
-
-      if (!mounted) return;
-      HapticFeedback.heavyImpact();
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (_) => const DriverRadarScreen()),
-      );
-    } catch (e) {
-      if (!mounted) return;
-      _showErrorSnackBar('Captain registration failed: $e');
-    } finally {
-      if (mounted) setState(() => _isLoading = false);
-    }
-  }
-
   void _showErrorSnackBar(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -463,18 +729,18 @@ class _AuthScreenState extends State<AuthScreen> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              _isArabic ? 'جـو سِـيف' : 'GO SAFE',
+                              _isArabic ? 'جـو سِـيف رَفِيق' : 'RAFIK GO SAFE',
                               style: TextStyle(
                                 color: _currentAccent,
-                                fontSize: 18,
+                                fontSize: 17,
                                 fontWeight: FontWeight.w900,
-                                letterSpacing: 1.2,
+                                letterSpacing: 1.1,
                               ),
                             ),
                             Text(
                               _selectedGender == 'female'
-                                  ? (_isArabic ? 'شبكة جو سيف هير الآمنة' : 'Go Safe Her Network')
-                                  : (_isArabic ? 'منصة التنقل الآمن والذكي' : 'Smart & Verified Mobility'),
+                                  ? (_isArabic ? 'شبكة رفيق هير الآمنة للسيدات' : 'Rafik Her Women-Only Network')
+                                  : (_isArabic ? 'منصة التنقل الآمن والذكي' : 'Verified Safe Mobility Network'),
                               style: const TextStyle(color: Colors.white54, fontSize: 10),
                             ),
                           ],
@@ -543,36 +809,23 @@ class _AuthScreenState extends State<AuthScreen> {
         const SizedBox(height: 6),
         Text(
           _isArabic
-              ? 'سجل دخولك باستخدام اسم المستخدم أو رقم الموبايل'
-              : 'Sign in with your username or mobile number to continue',
+              ? 'أدخل رقم الموبايل لتلقي كود التحقق الآمن عبر SMS'
+              : 'Enter your mobile number to receive a secure SMS verification code',
           style: const TextStyle(color: Colors.white60, fontSize: 14),
         ),
         const SizedBox(height: 32),
 
-        // Identifier Field (Username or Mobile)
+        // Mobile Field
         _buildInputField(
-          controller: _loginIdentifierController,
-          label: _isArabic ? 'اسم المستخدم أو الموبايل' : 'Username or Mobile',
-          hint: _isArabic ? 'مثال: 01012345678 أو kiro_99' : 'e.g. 01012345678 or ahmed_99',
-          icon: Icons.person_outline_rounded,
-        ),
-        const SizedBox(height: 18),
-
-        // Password Field
-        _buildInputField(
-          controller: _loginPasswordController,
-          label: _isArabic ? 'كلمة المرور' : 'Password',
-          hint: '••••••••',
-          icon: Icons.lock_outline_rounded,
-          isPassword: true,
-          obscureText: _obscurePassword,
-          onTogglePassword: () {
-            setState(() => _obscurePassword = !_obscurePassword);
-          },
+          controller: _loginPhoneController,
+          label: _isArabic ? 'رقم الموبايل المصري' : 'Egyptian Mobile Number',
+          hint: '010XXXXXXXX / 011XXXXXXXX',
+          icon: Icons.phone_android_rounded,
+          keyboardType: TextInputType.phone,
         ),
         const SizedBox(height: 28),
 
-        // Log In Button
+        // Send OTP Button
         ElevatedButton(
           style: ElevatedButton.styleFrom(
             backgroundColor: _currentAccent,
@@ -581,7 +834,7 @@ class _AuthScreenState extends State<AuthScreen> {
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
             elevation: 4,
           ),
-          onPressed: _isLoading ? null : _handleLogin,
+          onPressed: _isLoading ? null : _handleLoginPhone,
           child: _isLoading
               ? const SizedBox(
                   height: 20,
@@ -589,13 +842,13 @@ class _AuthScreenState extends State<AuthScreen> {
                   child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
                 )
               : Text(
-                  _isArabic ? 'تسجيل الدخول ➔' : 'Log In ➔',
+                  _isArabic ? 'إرسال كود التحقق (SMS) ➔' : 'Send Verification Code (SMS) ➔',
                   style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                 ),
         ),
         const SizedBox(height: 24),
 
-        // Under Login: "Register Now" with prompt
+        // "Register Now" Prompt
         Center(
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
@@ -634,19 +887,19 @@ class _AuthScreenState extends State<AuthScreen> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 Text(
-                  _isArabic ? 'تخصيص المظهر: ' : 'Appearance Theme: ',
+                  _isArabic ? 'طابع الخدمة: ' : 'Service Theme: ',
                   style: const TextStyle(color: Colors.white54, fontSize: 12),
                 ),
                 const SizedBox(width: 8),
                 ChoiceChip(
-                  label: Text(_isArabic ? 'أنثى' : 'Female'),
+                  label: Text(_isArabic ? 'رفيق هير (سيدات)' : 'Rafik Her (Women)'),
                   selected: _selectedGender == 'female',
                   selectedColor: AppTheme.roseGold.withValues(alpha: 0.3),
                   onSelected: (val) => setState(() => _selectedGender = 'female'),
                 ),
                 const SizedBox(width: 6),
                 ChoiceChip(
-                  label: Text(_isArabic ? 'ذكر' : 'Male'),
+                  label: Text(_isArabic ? 'رفيق ستاندرد' : 'Rafik Standard'),
                   selected: _selectedGender == 'male',
                   selectedColor: const Color(0xFF3B82F6).withValues(alpha: 0.3),
                   onSelected: (val) => setState(() => _selectedGender = 'male'),
@@ -670,7 +923,10 @@ class _AuthScreenState extends State<AuthScreen> {
           children: [
             IconButton(
               icon: const Icon(Icons.arrow_back, color: Colors.white),
-              onPressed: () => setState(() => _isLogin = true),
+              onPressed: () async {
+                await FirebaseService().signOut();
+                setState(() => _isLogin = true);
+              },
             ),
             const SizedBox(width: 8),
             Text(
@@ -690,16 +946,16 @@ class _AuthScreenState extends State<AuthScreen> {
         // Basic Profile Info
         _buildInputField(
           controller: _regNameController,
-          label: _isArabic ? 'الاسم بالكامل' : 'Full Name',
-          hint: _isArabic ? 'الاسم كما في بطاقة الرقم القومي' : 'Full legal name',
+          label: _isArabic ? 'الاسم بالكامل' : 'Full Legal Name',
+          hint: _isArabic ? 'الاسم كما هو مدون في البطاقة' : 'As written on National ID',
           icon: Icons.badge_outlined,
         ),
         const SizedBox(height: 14),
 
         _buildInputField(
           controller: _regPhoneController,
-          label: _isArabic ? 'رقم الموبايل' : 'Mobile Number',
-          hint: '010XXXXXXXX',
+          label: _isArabic ? 'رقم الموبايل المصري' : 'Mobile Number',
+          hint: '010XXXXXXXX / 011XXXXXXXX',
           icon: Icons.phone_android_rounded,
           keyboardType: TextInputType.phone,
         ),
@@ -707,22 +963,9 @@ class _AuthScreenState extends State<AuthScreen> {
 
         _buildInputField(
           controller: _regUsernameController,
-          label: _isArabic ? 'اسم المستخدم' : 'Username',
-          hint: 'user123',
+          label: _isArabic ? 'اسم المستخدم (اختياري)' : 'Username (Optional)',
+          hint: 'e.g. rafik_user',
           icon: Icons.alternate_email_rounded,
-        ),
-        const SizedBox(height: 14),
-
-        _buildInputField(
-          controller: _regPasswordController,
-          label: _isArabic ? 'كلمة المرور' : 'Password',
-          hint: '••••••••',
-          icon: Icons.lock_outline_rounded,
-          isPassword: true,
-          obscureText: _obscurePassword,
-          onTogglePassword: () {
-            setState(() => _obscurePassword = !_obscurePassword);
-          },
         ),
         const SizedBox(height: 14),
 
@@ -738,7 +981,7 @@ class _AuthScreenState extends State<AuthScreen> {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text(
-                _isArabic ? 'النوع / الجنس:' : 'Gender Profile:',
+                _isArabic ? 'النوع / الجنس:' : 'Gender:',
                 style: const TextStyle(color: Colors.white70, fontSize: 14),
               ),
               Row(
@@ -775,7 +1018,7 @@ class _AuthScreenState extends State<AuthScreen> {
 
           _buildInputField(
             controller: _regNationalIdController,
-            label: _isArabic ? 'الرقم القومي (14 رقم)' : 'Egyptian National ID (14 digits)',
+            label: _isArabic ? 'الرقم القومي المصري (14 رقم)' : 'National ID (14 digits)',
             hint: '2980XXXXXXXXXX',
             icon: Icons.credit_card_rounded,
             keyboardType: TextInputType.number,
@@ -784,7 +1027,7 @@ class _AuthScreenState extends State<AuthScreen> {
 
           _buildInputField(
             controller: _regVehicleModelController,
-            label: _isArabic ? 'موديل السيارة' : 'Vehicle Make & Model',
+            label: _isArabic ? 'موديل وماركة السيارة' : 'Vehicle Model & Make',
             hint: 'Toyota Corolla / Hyundai Elantra',
             icon: Icons.directions_car_rounded,
           ),
@@ -805,7 +1048,7 @@ class _AuthScreenState extends State<AuthScreen> {
                 child: _buildInputField(
                   controller: _regVehicleColorController,
                   label: _isArabic ? 'اللون' : 'Color',
-                  hint: 'White / Black',
+                  hint: 'أبيض / أسود',
                   icon: Icons.palette_outlined,
                 ),
               ),
@@ -823,9 +1066,7 @@ class _AuthScreenState extends State<AuthScreen> {
             padding: const EdgeInsets.symmetric(vertical: 16),
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
           ),
-          onPressed: _isLoading
-              ? null
-              : (isCaptain ? _handleRegisterCaptain : _handleRegisterClient),
+          onPressed: _isLoading ? null : _handleStartRegistration,
           child: _isLoading
               ? const SizedBox(
                   height: 20,
@@ -834,8 +1075,8 @@ class _AuthScreenState extends State<AuthScreen> {
                 )
               : Text(
                   isCaptain
-                      ? (_isArabic ? 'تسجيل ككابتن الآن ➔' : 'Complete Captain Signup ➔')
-                      : (_isArabic ? 'إنشاء حساب عميل ➔' : 'Create Client Account ➔'),
+                      ? (_isArabic ? 'المتابعة وتأكيد الموبايل (SMS) ➔' : 'Verify Mobile via SMS ➔')
+                      : (_isArabic ? 'تأكيد الحساب عبر (SMS) ➔' : 'Verify Account via SMS ➔'),
                   style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                 ),
         ),
@@ -843,7 +1084,10 @@ class _AuthScreenState extends State<AuthScreen> {
         const SizedBox(height: 18),
         Center(
           child: TextButton(
-            onPressed: () => setState(() => _isLogin = true),
+            onPressed: () async {
+              await FirebaseService().signOut();
+              setState(() => _isLogin = true);
+            },
             child: Text(
               _isArabic ? 'لديك حساب بالفعل؟ تسجيل الدخول' : 'Already have an account? Log In',
               style: TextStyle(color: _currentAccent),
@@ -861,9 +1105,6 @@ class _AuthScreenState extends State<AuthScreen> {
     required String label,
     required String hint,
     required IconData icon,
-    bool isPassword = false,
-    bool obscureText = false,
-    VoidCallback? onTogglePassword,
     TextInputType keyboardType = TextInputType.text,
   }) {
     return Column(
@@ -886,23 +1127,12 @@ class _AuthScreenState extends State<AuthScreen> {
           ),
           child: TextField(
             controller: controller,
-            obscureText: isPassword && obscureText,
             keyboardType: keyboardType,
             style: const TextStyle(color: Colors.white, fontSize: 15),
             decoration: InputDecoration(
               hintText: hint,
               hintStyle: const TextStyle(color: Colors.white30, fontSize: 14),
               prefixIcon: Icon(icon, color: _currentAccent, size: 20),
-              suffixIcon: isPassword
-                  ? IconButton(
-                      icon: Icon(
-                        obscureText ? Icons.visibility_off : Icons.visibility,
-                        color: Colors.white38,
-                        size: 20,
-                      ),
-                      onPressed: onTogglePassword,
-                    )
-                  : null,
               border: InputBorder.none,
               contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
             ),

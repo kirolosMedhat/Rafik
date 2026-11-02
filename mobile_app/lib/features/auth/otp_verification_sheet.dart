@@ -1,24 +1,35 @@
 import 'dart:async';
-import 'package:flutter/foundation.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../core/services/firebase_service.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/utils/phone_number_utils.dart';
 import '../../core/widgets/pill_badge.dart';
 
+/// Rafik (رفيق) — Real Firebase Phone Authentication OTP Verification Sheet
+///
+/// Features:
+/// - Real SMS OTP verification via FirebaseAuth.instance.signInWithCredential
+/// - 6-digit individual input fields with auto-advance and backspace handling
+/// - 60-second resend countdown using forceResendingToken
+/// - Full Egyptian Arabic & English localized error handling
+/// - Zero mock/dummy backdoor codes
 class OtpVerificationSheet extends StatefulWidget {
   final String phoneNumber;
-  final String userName;
-  final String role; // 'rider' or 'driver'
+  final String verificationId;
+  final int? resendToken;
   final String gender; // 'female' or 'male'
-  final VoidCallback onVerified;
+  final bool isArabic;
+  final void Function(UserCredential credential) onVerified;
 
   const OtpVerificationSheet({
     super.key,
     required this.phoneNumber,
-    required this.userName,
-    required this.role,
+    required this.verificationId,
+    this.resendToken,
     this.gender = 'female',
+    this.isArabic = true,
     required this.onVerified,
   });
 
@@ -31,6 +42,9 @@ class _OtpVerificationSheetState extends State<OtpVerificationSheet> {
       List.generate(6, (_) => TextEditingController());
   final List<FocusNode> _focusNodes = List.generate(6, (_) => FocusNode());
 
+  late String _currentVerificationId;
+  int? _currentResendToken;
+
   int _resendCountdown = 60;
   Timer? _timer;
   bool _isVerifying = false;
@@ -39,6 +53,8 @@ class _OtpVerificationSheetState extends State<OtpVerificationSheet> {
   @override
   void initState() {
     super.initState();
+    _currentVerificationId = widget.verificationId;
+    _currentResendToken = widget.resendToken;
     _startCountdown();
   }
 
@@ -68,9 +84,11 @@ class _OtpVerificationSheetState extends State<OtpVerificationSheet> {
 
   Future<void> _verifyOtp() async {
     final enteredPin = _pinControllers.map((c) => c.text).join().trim();
-    if (enteredPin.length < 4) {
+    if (enteredPin.length < 6) {
       setState(() {
-        _errorMessage = 'Please enter the complete verification code';
+        _errorMessage = widget.isArabic
+            ? 'يرجى إدخال رمز التحقق المكون من 6 أرقام بالكامل'
+            : 'Please enter the complete 6-digit verification code';
       });
       return;
     }
@@ -82,77 +100,112 @@ class _OtpVerificationSheetState extends State<OtpVerificationSheet> {
     HapticFeedback.mediumImpact();
 
     try {
-      final supabase = Supabase.instance.client;
-
-      // Verify OTP through official Supabase Auth
-      final response = await supabase.auth.verifyOTP(
-        type: OtpType.sms,
-        token: enteredPin,
-        phone: widget.phoneNumber,
+      final credential = await FirebaseService().verifyPhoneOtp(
+        verificationId: _currentVerificationId,
+        smsCode: enteredPin,
       );
 
-      if (response.session != null && mounted) {
+      if (mounted) {
         Navigator.pop(context);
-        widget.onVerified();
-        return;
+        widget.onVerified(credential);
       }
-    } catch (e) {
-      debugPrint('[Auth] verifyOTP notice: $e');
-
-      // Debug mode fallback for local testing with dummy/test phone numbers
-      if (kDebugMode && (enteredPin == '1234' || enteredPin == '123456')) {
-        try {
-          // In debug mode, sign in with seeded test account
-          final testEmail = '${widget.role}_${widget.gender}_test@rafik.internal';
-          final authRes = await Supabase.instance.client.auth.signInWithPassword(
-            email: testEmail,
-            password: 'TestPassword123!',
-          );
-          if (authRes.session != null && mounted) {
-            Navigator.pop(context);
-            widget.onVerified();
-            return;
-          }
-        } catch (_) {}
+    } on FirebaseAuthException catch (e) {
+      debugPrint('[PhoneAuth] verifyOtp FirebaseAuthException: [${e.code}] ${e.message}');
+      String msg;
+      switch (e.code) {
+        case 'invalid-verification-code':
+          msg = widget.isArabic
+              ? 'رمز التحقق غير صحيح. يرجى التأكد وإعادة المحاولة.'
+              : 'Invalid verification code. Please check and try again.';
+          break;
+        case 'session-expired':
+          msg = widget.isArabic
+              ? 'انتهت صلاحية رمز التحقق. يرجى طلب رمز جديد.'
+              : 'Verification code expired. Please request a new code.';
+          break;
+        case 'network-request-failed':
+          msg = widget.isArabic
+              ? 'خطأ في الاتصال بالشبكة. يرجى التحقق من اتصالك بالإنترنت.'
+              : 'Network error. Please check your internet connection.';
+          break;
+        case 'too-many-requests':
+          msg = widget.isArabic
+              ? 'تم تجاوز عدد المحاولات المسموح بها. يرجى الانتظار قليلاً.'
+              : 'Too many attempts. Please try again later.';
+          break;
+        default:
+          msg = widget.isArabic
+              ? 'فشل التحقق من الرمز: ${e.message ?? e.code}'
+              : 'Verification failed: ${e.message ?? e.code}';
       }
 
       if (mounted) {
         setState(() {
-          _errorMessage = 'Invalid verification code. Please check and try again.';
+          _errorMessage = msg;
           _isVerifying = false;
         });
       }
-      return;
-    }
-
-    if (mounted) {
-      setState(() => _isVerifying = false);
+    } catch (e) {
+      debugPrint('[PhoneAuth] verifyOtp generic error: $e');
+      if (mounted) {
+        setState(() {
+          _errorMessage = e.toString();
+          _isVerifying = false;
+        });
+      }
     }
   }
 
   Future<void> _resendCode() async {
     if (_resendCountdown > 0) return;
+    setState(() => _errorMessage = null);
+
     try {
-      await Supabase.instance.client.auth.signInWithOtp(
-        phone: widget.phoneNumber,
+      await FirebaseService().sendPhoneOtp(
+        rawPhone: widget.phoneNumber,
+        forceResendingToken: _currentResendToken,
+        onCodeSent: (newVerificationId, newResendToken) {
+          if (mounted) {
+            setState(() {
+              _currentVerificationId = newVerificationId;
+              _currentResendToken = newResendToken;
+            });
+            _startCountdown();
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                  widget.isArabic
+                      ? 'تم إرسال رمز تحقق جديد عبر رسالة SMS'
+                      : 'A new verification code has been dispatched via SMS.',
+                ),
+                backgroundColor: AppTheme.sageSafe,
+              ),
+            );
+          }
+        },
+        onVerificationFailed: (e) {
+          if (mounted) {
+            setState(() {
+              _errorMessage = widget.isArabic
+                  ? 'فشل إرسال الرسالة: ${e.message}'
+                  : 'Failed to send SMS: ${e.message ?? e.code}';
+            });
+          }
+        },
+        onVerificationCompleted: (credential) async {
+          // Instant auto-retrieval
+          try {
+            final authCred = await FirebaseService().auth.signInWithCredential(credential);
+            if (mounted) {
+              Navigator.pop(context);
+              widget.onVerified(authCred);
+            }
+          } catch (_) {}
+        },
       );
-      _startCountdown();
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('A new verification code has been dispatched via SMS.'),
-            backgroundColor: AppTheme.sageSafe,
-          ),
-        );
-      }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to resend SMS: $e'),
-            backgroundColor: AppTheme.berryCore,
-          ),
-        );
+        setState(() => _errorMessage = e.toString());
       }
     }
   }
@@ -161,165 +214,182 @@ class _OtpVerificationSheetState extends State<OtpVerificationSheet> {
   Widget build(BuildContext context) {
     final isMale = widget.gender == 'male';
     final accentColor = isMale ? const Color(0xFF3B82F6) : AppTheme.roseGold;
+    final displayPhone = PhoneNumberUtils.formatForDisplay(widget.phoneNumber);
 
-    return Container(
-      padding: EdgeInsets.only(
-        bottom: MediaQuery.of(context).viewInsets.bottom + 24,
-        top: 24,
-        left: 24,
-        right: 24,
-      ),
-      decoration: const BoxDecoration(
-        color: Color(0xFF141419),
-        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Center(
-            child: Container(
-              width: 44,
-              height: 4,
-              decoration: BoxDecoration(
-                color: Colors.white24,
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-          ),
-          const SizedBox(height: 20),
-
-          // Header
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              PillBadge(
-                label: 'SMS VERIFICATION',
-                variant: isMale ? PillBadgeVariant.dark : PillBadgeVariant.roseGold,
-              ),
-              IconButton(
-                icon: const Icon(Icons.close, color: Colors.white70),
-                onPressed: () => Navigator.pop(context),
-              ),
-            ],
-          ),
-
-          const SizedBox(height: 12),
-          const Text(
-            'Enter Verification Code',
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: 20,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            'We sent a 6-digit verification code to ${widget.phoneNumber}',
-            style: const TextStyle(color: Colors.white70, fontSize: 13),
-          ),
-
-          const SizedBox(height: 24),
-
-          // PIN Input Fields (6-digit)
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: List.generate(6, (index) {
-              return SizedBox(
+    return Directionality(
+      textDirection: widget.isArabic ? TextDirection.rtl : TextDirection.ltr,
+      child: Container(
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.of(context).viewInsets.bottom + 24,
+          top: 24,
+          left: 24,
+          right: 24,
+        ),
+        decoration: const BoxDecoration(
+          color: Color(0xFF141419),
+          borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Center(
+              child: Container(
                 width: 44,
-                height: 52,
-                child: TextField(
-                  controller: _pinControllers[index],
-                  focusNode: _focusNodes[index],
-                  keyboardType: TextInputType.number,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
-                  ),
-                  maxLength: 1,
-                  decoration: InputDecoration(
-                    counterText: '',
-                    filled: true,
-                    fillColor: const Color(0xFF1E1E26),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide(color: Colors.white.withOpacity(0.1)),
-                    ),
-                    focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide(color: accentColor, width: 2),
-                    ),
-                  ),
-                  onChanged: (val) {
-                    if (val.isNotEmpty && index < 5) {
-                      _focusNodes[index + 1].requestFocus();
-                    } else if (val.isEmpty && index > 0) {
-                      _focusNodes[index - 1].requestFocus();
-                    }
-                    if (index == 5 && val.isNotEmpty) {
-                      _verifyOtp();
-                    }
-                  },
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.white24,
+                  borderRadius: BorderRadius.circular(2),
                 ),
-              );
-            }),
-          ),
+              ),
+            ),
+            const SizedBox(height: 20),
 
-          if (_errorMessage != null) ...[
+            // Header Row
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                PillBadge(
+                  label: widget.isArabic ? 'التحقق عبر SMS' : 'SMS VERIFICATION',
+                  variant: isMale ? PillBadgeVariant.dark : PillBadgeVariant.roseGold,
+                ),
+                IconButton(
+                  icon: const Icon(Icons.close, color: Colors.white70),
+                  onPressed: () => Navigator.pop(context),
+                ),
+              ],
+            ),
+
             const SizedBox(height: 12),
             Text(
-              _errorMessage!,
-              textAlign: TextAlign.center,
-              style: const TextStyle(color: Color(0xFFE11D48), fontSize: 12, fontWeight: FontWeight.w600),
-            ),
-          ],
-
-          const SizedBox(height: 24),
-
-          // Verify Button
-          SizedBox(
-            height: 52,
-            child: ElevatedButton(
-              onPressed: _isVerifying ? null : _verifyOtp,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: accentColor,
-                foregroundColor: Colors.black,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+              widget.isArabic ? 'أدخل رمز التحقق' : 'Enter Verification Code',
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
               ),
-              child: _isVerifying
-                  ? const SizedBox(
-                      height: 20,
-                      width: 20,
-                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black),
-                    )
-                  : const Text(
-                      'Verify & Continue',
-                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                    ),
             ),
-          ),
+            const SizedBox(height: 6),
+            Text(
+              widget.isArabic
+                  ? 'تم إرسال كود مكوّن من 6 أرقام إلى $displayPhone'
+                  : 'We sent a 6-digit verification code to $displayPhone',
+              style: const TextStyle(color: Colors.white70, fontSize: 13),
+            ),
 
-          const SizedBox(height: 16),
+            const SizedBox(height: 24),
 
-          // Resend Timer
-          Center(
-            child: TextButton(
-              onPressed: _resendCountdown == 0 ? _resendCode : null,
-              child: Text(
-                _resendCountdown > 0
-                    ? 'Resend code in ${_resendCountdown}s'
-                    : 'Resend Verification Code',
-                style: TextStyle(
-                  color: _resendCountdown == 0 ? accentColor : Colors.white38,
-                  fontSize: 13,
+            // PIN Input Fields (6-digit)
+            Directionality(
+              textDirection: TextDirection.ltr, // Keep digits LTR
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: List.generate(6, (index) {
+                  return SizedBox(
+                    width: 44,
+                    height: 52,
+                    child: TextField(
+                      controller: _pinControllers[index],
+                      focusNode: _focusNodes[index],
+                      keyboardType: TextInputType.number,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                      ),
+                      maxLength: 1,
+                      decoration: InputDecoration(
+                        counterText: '',
+                        filled: true,
+                        fillColor: const Color(0xFF1E1E26),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.1)),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide(color: accentColor, width: 2),
+                        ),
+                      ),
+                      onChanged: (val) {
+                        if (val.isNotEmpty && index < 5) {
+                          _focusNodes[index + 1].requestFocus();
+                        } else if (val.isEmpty && index > 0) {
+                          _focusNodes[index - 1].requestFocus();
+                        }
+                        if (index == 5 && val.isNotEmpty) {
+                          _verifyOtp();
+                        }
+                      },
+                    ),
+                  );
+                }),
+              ),
+            ),
+
+            if (_errorMessage != null) ...[
+              const SizedBox(height: 14),
+              Text(
+                _errorMessage!,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  color: Color(0xFFE11D48),
+                  fontSize: 12.5,
                   fontWeight: FontWeight.w600,
                 ),
               ),
+            ],
+
+            const SizedBox(height: 24),
+
+            // Verify Button
+            SizedBox(
+              height: 52,
+              child: ElevatedButton(
+                onPressed: _isVerifying ? null : _verifyOtp,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: accentColor,
+                  foregroundColor: isMale ? Colors.white : Colors.black,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                ),
+                child: _isVerifying
+                    ? const SizedBox(
+                        height: 20,
+                        width: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                      )
+                    : Text(
+                        widget.isArabic ? 'تأكيد ومتابعة' : 'Verify & Continue',
+                        style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                      ),
+              ),
             ),
-          ),
-        ],
+
+            const SizedBox(height: 16),
+
+            // Resend Timer
+            Center(
+              child: TextButton(
+                onPressed: _resendCountdown == 0 ? _resendCode : null,
+                child: Text(
+                  _resendCountdown > 0
+                      ? (widget.isArabic
+                          ? 'إعادة إرسال الرمز خلال $_resendCountdown ثانية'
+                          : 'Resend code in ${_resendCountdown}s')
+                      : (widget.isArabic
+                          ? 'إعادة إرسال رمز التحقق'
+                          : 'Resend Verification Code'),
+                  style: TextStyle(
+                    color: _resendCountdown == 0 ? accentColor : Colors.white38,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

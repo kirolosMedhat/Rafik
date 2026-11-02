@@ -1,0 +1,39 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+    "suspended_drivers": {
+      "$driverId": {
+        ".read": "auth != null && (auth.uid === $driverId || auth.token.role === 'admin' || auth.token.admin === true)",
+        ".write": false
+      }
+    },
+    "deactivated_users": {
+      "$userId": {
+        ".read": "auth != null && (auth.uid === $userId || auth.token.role === 'admin' || auth.token.admin === true)",
+        ".write": false
+      }
+    },
+    "driver_locations": {
+      "$driverId": {
+        ".read": "auth != null && (auth.uid === $driverId || auth.token.role === 'admin' || auth.token.admin === true || data.child('active_rider_id').val() === auth.uid)",
+        ".write": "auth != null && auth.uid === $driverId && (auth.token.role === 'driver' || auth.token.driver === true) && auth.token.approved === true && auth.token.suspended != true && auth.token.disabled != true && auth.token.deactivated != true && root.child('suspended_drivers').child(auth.uid).exists() === false && root.child('deactivated_users').child(auth.uid).exists() === false && root.child('driver_locations').child($driverId).child('status').val() !== 'suspended'",
+        ".validate": "newData.hasChildren(['lat', 'lng', 'updated_at']) && newData.child('lat').isNumber() && newData.child('lat').val() >= -90.0 && newData.child('lat').val() <= 90.0 && newData.child('lng').isNumber() && newData.child('lng').val() >= -180.0 && newData.child('lng').val() <= 180.0 && newData.child('updated_at').isNumber() && newData.child('updated_at').val() <= now && newData.child('updated_at').val() >= (now - 15000) && (!newData.hasChild('heading') || (newData.child('heading').isNumber() && newData.child('heading').val() >= 0.0 && newData.child('heading').val() <= 360.0)) && (!newData.hasChild('speed') || (newData.child('speed').isNumber() && newData.child('speed').val() >= 0.0)) && (!data.hasChild('status') ? !newData.hasChild('status') : newData.child('status').val() === data.child('status').val()) && (!data.hasChild('gender') ? !newData.hasChild('gender') : newData.child('gender').val() === data.child('gender').val()) && (!data.hasChild('gender_verified') ? !newData.hasChild('gender_verified') : newData.child('gender_verified').val() === data.child('gender_verified').val()) && (!data.hasChild('is_busy') ? !newData.hasChild('is_busy') : newData.child('is_busy').val() === data.child('is_busy').val()) && (!data.hasChild('active_rider_id') ? !newData.hasChild('active_rider_id') : newData.child('active_rider_id').val() === data.child('active_rider_id').val()) && (!data.hasChild('tier') ? !newData.hasChild('tier') : newData.child('tier').val() === data.child('tier').val())"
+      }
+    },
+    "driver_presence": {
+      "$driverId": {
+        ".read": "auth != null && (auth.uid === $driverId || auth.token.role === 'admin' || auth.token.admin === true)",
+        ".write": "auth != null && auth.uid === $driverId && (auth.token.role === 'driver' || auth.token.driver === true) && auth.token.approved === true && auth.token.suspended != true && auth.token.disabled != true && auth.token.deactivated != true && root.child('suspended_drivers').child(auth.uid).exists() === false && root.child('deactivated_users').child(auth.uid).exists() === false",
+        ".validate": "newData.hasChildren(['state']) && (newData.child('state').val() === 'online' || newData.child('state').val() === 'offline') && (!newData.hasChild('last_changed') || (newData.child('last_changed').isNumber() && newData.child('last_changed').val() <= now)) && (!newData.hasChild('last_seen') || (newData.child('last_seen').isNumber() && newData.child('last_seen').val() <= now)) && (!newData.hasChild('updated_at') || (newData.child('updated_at').isNumber() && newData.child('updated_at').val() <= now))"
+      }
+    },
+    "active_sessions": {
+      "$driverId": {
+        ".read": "auth != null && (auth.uid === $driverId || auth.token.role === 'admin' || auth.token.admin === true)",
+        ".write": "auth != null && auth.uid === $driverId && (auth.token.role === 'driver' || auth.token.driver === true) && auth.token.approved === true && auth.token.suspended != true && auth.token.disabled != true && auth.token.deactivated != true && root.child('suspended_drivers').child(auth.uid).exists() === false && root.child('deactivated_users').child(auth.uid).exists() === false",
+        ".validate": "newData.hasChildren(['connected_at'])"
+      }
+    }
+  }
+}

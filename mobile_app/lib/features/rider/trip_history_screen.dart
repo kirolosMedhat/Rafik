@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import '../../core/services/supabase_service.dart';
+import '../../core/services/firebase_service.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/pill_badge.dart';
 
@@ -65,7 +65,7 @@ class _TripHistoryScreenState extends State<TripHistoryScreen> {
 
   Future<void> _loadTrips() async {
     setState(() => _isLoading = true);
-    final fetched = await SupabaseService().fetchUserTrips();
+    final fetched = await FirebaseService().fetchUserTrips();
     setState(() {
       _trips = fetched.isNotEmpty ? fetched : _demoTrips;
       _isLoading = false;
