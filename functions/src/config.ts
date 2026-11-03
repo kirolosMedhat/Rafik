@@ -6,6 +6,10 @@
  */
 
 import * as admin from 'firebase-admin';
+
+function getAdmin(): any {
+  return (admin as any).default || admin;
+}
 import { PlatformSettings } from './types.js';
 
 // Default baseline configuration if Firestore document is not yet initialized
@@ -47,7 +51,7 @@ export async function getPlatformSettings(forceRefresh = false): Promise<Platfor
   }
 
   try {
-    const db = admin.firestore();
+    const db = getAdmin().firestore();
     const docSnap = await db.collection('app_settings').doc('global').get();
 
     if (docSnap.exists) {

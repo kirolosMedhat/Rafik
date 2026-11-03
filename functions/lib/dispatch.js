@@ -4,6 +4,9 @@
  * individual ride offers, and Realtime Database telemetry integration.
  */
 import * as admin from 'firebase-admin';
+function getAdmin() {
+    return admin.default || admin;
+}
 import { getPlatformSettings } from './config.js';
 import { haversineDistanceKm } from './spatial.js';
 /**
@@ -14,7 +17,7 @@ export async function findNearbyEligibleDrivers(pickupLat, pickupLng, tier, radi
     const settings = await getPlatformSettings();
     const heartbeatLimitMs = settings.dispatch.driver_heartbeat_timeout_seconds * 1000;
     const now = Date.now();
-    const rtdb = admin.database();
+    const rtdb = getAdmin().database();
     const snapshot = await rtdb.ref('driver_locations').once('value');
     const locationsMap = snapshot.val();
     if (!locationsMap) {
@@ -70,10 +73,10 @@ export async function createAndDispatchOffers(ride, radiusKm, excludedDriverIds 
     if (candidates.length === 0) {
         return { count: 0, dispatchedDriverIds: [] };
     }
-    const db = admin.firestore();
+    const db = getAdmin().firestore();
     const batch = db.batch();
     const offerTtlMs = settings.dispatch.offer_timeout_seconds * 1000;
-    const expiresAt = admin.firestore.Timestamp.fromMillis(Date.now() + offerTtlMs);
+    const expiresAt = getAdmin().firestore.Timestamp.fromMillis(Date.now() + offerTtlMs);
     const offerIds = [];
     const targetTokens = [];
     const newlyDispatchedDriverIds = [];
@@ -89,7 +92,7 @@ export async function createAndDispatchOffers(ride, radiusKm, excludedDriverIds 
             distance_km: ride.distance_km,
             fare_egp: ride.fare_egp,
             status: 'pending',
-            offered_at: admin.firestore.FieldValue.serverTimestamp(),
+            offered_at: getAdmin().firestore.FieldValue.serverTimestamp(),
             expires_at: expiresAt,
         };
         batch.set(offerRef, offerData);
@@ -98,7 +101,7 @@ export async function createAndDispatchOffers(ride, radiusKm, excludedDriverIds 
         // Look up driver's FCM token from RTDB or Firestore active_sessions
         try {
             let token = null;
-            const sessionSnap = await admin.database().ref(`active_sessions/${candidate.driver_id}/fcm_token`).once('value');
+            const sessionSnap = await getAdmin().database().ref(`active_sessions/${candidate.driver_id}/fcm_token`).once('value');
             if (sessionSnap.exists() && typeof sessionSnap.val() === 'string') {
                 token = sessionSnap.val();
             }
@@ -118,7 +121,7 @@ export async function createAndDispatchOffers(ride, radiusKm, excludedDriverIds 
     // Send FCM High-Priority Data Push (Wakeup Alert) to candidate drivers
     if (targetTokens.length > 0) {
         try {
-            await admin.messaging().sendEachForMulticast({
+            await getAdmin().messaging().sendEachForMulticast({
                 tokens: targetTokens,
                 data: {
                     type: 'ride_offer',

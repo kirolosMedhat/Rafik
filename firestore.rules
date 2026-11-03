@@ -95,12 +95,8 @@ service cloud.firestore {
     // 3. Drivers Collection (/drivers/{driverId})
     // ===============================================================
     match /drivers/{driverId} {
-      // Read: Owner, Admin, or anyone viewing approved online captains for map display
-      allow read: if isAuthenticated() && (
-        isOwner(driverId) ||
-        isAdmin() ||
-        (resource.data.status == 'approved' && resource.data.is_online == true)
-      );
+      // Read: ONLY Owner or Admin. Riders and unauthorized users CANNOT read private records.
+      allow read: if isOwner(driverId) || isAdmin();
 
       // Create: Initial driver onboarding. Status forced to 'pending', wallet/trips zeroed
       allow create: if isOwner(driverId) &&
@@ -119,6 +115,30 @@ service cloud.firestore {
         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['is_online', 'is_busy', 'updated_at'])
       );
 
+      allow delete: if isAdmin();
+    }
+
+    
+    // ===============================================================
+    // 3b. Public Drivers Collection (/public_drivers/{driverId})
+    // Safe public projection containing only non-sensitive dispatcher data
+    // ===============================================================
+    match /public_drivers/{driverId} {
+      // Read: Any authenticated user can read public info of approved online captains
+      allow read: if isAuthenticated() && (
+        isOwner(driverId) ||
+        isAdmin() ||
+        (resource.data.status == 'approved' && resource.data.is_online == true)
+      );
+
+      // Writes restricted strictly to the driver owner (with only safe public fields) or Admin
+      allow create, update: if (isOwner(driverId) || isAdmin()) &&
+        (
+          isAdmin() ||
+          !request.resource.data.keys().hasAny([
+            'national_id_number', 'license_number', 'phone', 'email', 'wallet_balance_egp', 'approved_by'
+          ])
+        );
       allow delete: if isAdmin();
     }
 

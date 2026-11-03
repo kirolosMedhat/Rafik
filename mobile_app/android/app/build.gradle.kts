@@ -39,11 +39,15 @@ android {
             if (keystorePropertiesFile.exists()) {
                 keyAlias = keystoreProperties.getProperty("keyAlias")
                 keyPassword = keystoreProperties.getProperty("keyPassword")
-                storeFile = keystoreProperties.getProperty("storeFile")?.let { file(it) }
+                val storePath = keystoreProperties.getProperty("storeFile")
+                val resolvedFile = storePath?.let { file(it) }
+                if (resolvedFile == null || !resolvedFile.exists()) {
+                    throw GradleException("Production release keystore file not found at: $storePath. Release builds require a valid signed keystore.")
+                }
+                storeFile = resolvedFile
                 storePassword = keystoreProperties.getProperty("storePassword")
             } else {
-                // Graceful fallback to debug signing for dev builds
-                initWith(getByName("debug"))
+                throw GradleException("Release build requires 'key.properties' with valid signing credentials. Falling back to debug signing is strictly prohibited for production release builds.")
             }
         }
     }

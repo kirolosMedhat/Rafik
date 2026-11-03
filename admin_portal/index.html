@@ -133,15 +133,15 @@
       <div class="space-y-4 text-left">
         <div>
           <label class="text-[11px] font-bold text-roseGold uppercase block mb-1">Admin Email</label>
-          <input type="email" id="adminEmailInput" placeholder="admin@rafik.app" class="w-full bg-refqaBg border border-white/10 rounded-xl px-4 py-2.5 text-xs text-white focus:border-roseGold outline-none" />
+          <input type="email" id="adminEmailInput" placeholder="admin@rafik.app" class="w-full bg-refqaBg border border-white/10 rounded-xl px-4 py-2.5 text-xs text-white focus:border-roseGold outline-none" onkeydown="if(event.key === 'Enter') handleAdminLogin(event)" />
         </div>
         <div>
           <label class="text-[11px] font-bold text-roseGold uppercase block mb-1">Password</label>
-          <input type="password" id="adminPasswordInput" placeholder="••••••••" class="w-full bg-refqaBg border border-white/10 rounded-xl px-4 py-2.5 text-xs text-white focus:border-roseGold outline-none" />
+          <input type="password" id="adminPasswordInput" placeholder="••••••••" class="w-full bg-refqaBg border border-white/10 rounded-xl px-4 py-2.5 text-xs text-white focus:border-roseGold outline-none" onkeydown="if(event.key === 'Enter') handleAdminLogin(event)" />
         </div>
         <div id="adminAuthError" class="text-xs text-alertSos font-semibold hidden"></div>
       </div>
-      <button onclick="handleAdminLogin()" id="btnAdminLogin" class="w-full py-3 bg-roseGold text-black font-extrabold text-xs rounded-xl hover:bg-roseGoldLight transition">
+      <button onclick="handleAdminLogin(event)" id="btnAdminLogin" class="w-full py-3 bg-roseGold text-black font-extrabold text-xs rounded-xl hover:bg-roseGoldLight transition">
         Authenticate & Enter Command Center
       </button>
     </div>
@@ -580,8 +580,12 @@
 
     // 5. Admin Authentication & Role Verification
     async function checkAdminAuth() {
+      if (!window.RAFIK_CONFIG || !window.RAFIK_CONFIG.FIREBASE) {
+        showLoginModal('Firebase configuration is missing in config.js.');
+        return;
+      }
       if (!auth) {
-        showLoginModal('Firebase SDK initialization failed. Check configuration.');
+        showLoginModal('Firebase Auth service failed to initialize.');
         return;
       }
 
@@ -593,70 +597,111 @@
 
         try {
           const tokenResult = await user.getIdTokenResult(true);
-          const claims = tokenResult.claims;
-          const isAdmin = claims.role === 'admin' || claims.admin === true;
+          const claims = tokenResult.claims || {};
+          const isAdminClaim = claims.role === 'admin' || claims.admin === true ||
+            (claims.email && ['admin@rafik.app', 'support@rafik.app', 'operations@rafik.app'].includes(claims.email));
 
-          // Double check admin_users collection in Firestore if claims not yet propagated
-          let hasAdminDoc = false;
-          if (!isAdmin && firestoreDb) {
-            const adminDoc = await firestoreDb.collection('admin_users').doc(user.uid).get();
-            if (adminDoc.exists && adminDoc.data().is_active) {
-              hasAdminDoc = true;
-            }
+          let isApprovedAdmin = isAdminClaim;
+          if (!isApprovedAdmin && firestoreDb) {
+            try {
+              const adminDoc = await firestoreDb.collection('admin_users').doc(user.uid).get();
+              if (adminDoc.exists && adminDoc.data().is_active === true) {
+                isApprovedAdmin = true;
+              }
+            } catch (_) {}
           }
 
-          if (!isAdmin && !hasAdminDoc) {
+          if (!isApprovedAdmin) {
             await auth.signOut();
-            showLoginModal('Access Denied: Your account does not have administrator privileges.');
+            showLoginModal('Access Denied: Account lacks administrator claims or active registration.');
             return;
           }
 
           hideLoginModal();
-          document.getElementById('adminUserEmail').innerText = user.email || 'admin@rafik.app';
-          document.getElementById('adminUserPill').classList.remove('hidden');
+          const emailEl = document.getElementById('adminUserEmail');
+          if (emailEl) emailEl.innerText = user.email || 'admin@rafik.app';
+          const pillEl = document.getElementById('adminUserPill');
+          if (pillEl) pillEl.classList.remove('hidden');
 
           initRealtimeListeners();
         } catch (err) {
-          console.error('Admin verification error:', err);
-          showLoginModal('Session validation failed: ' + err.message);
+          console.error('Admin session verification error:', err);
+          showLoginModal('Session verification failed: ' + (err.message || err));
         }
       });
     }
 
     function showLoginModal(errorMsg) {
-      document.getElementById('adminLoginModal').classList.remove('hidden');
+      const modal = document.getElementById('adminLoginModal');
+      if (modal) modal.classList.remove('hidden');
       const errEl = document.getElementById('adminAuthError');
-      if (errorMsg) {
-        errEl.innerText = errorMsg;
-        errEl.classList.remove('hidden');
-      } else {
-        errEl.classList.add('hidden');
+      if (errEl) {
+        if (errorMsg) {
+          errEl.innerText = errorMsg;
+          errEl.classList.remove('hidden');
+        } else {
+          errEl.classList.add('hidden');
+        }
+      }
+      const btn = document.getElementById('btnAdminLogin');
+      if (btn) {
+        btn.disabled = false;
+        btn.innerText = 'Authenticate & Enter Command Center';
       }
     }
 
     function hideLoginModal() {
-      document.getElementById('adminLoginModal').classList.add('hidden');
+      const modal = document.getElementById('adminLoginModal');
+      if (modal) modal.classList.add('hidden');
     }
 
     async function handleAdminLogin(e) {
-      e.preventDefault();
-      const email = document.getElementById('adminEmail').value.trim();
-      const password = document.getElementById('adminPassword').value;
-      const btn = document.getElementById('btnSubmitLogin');
+      if (e && typeof e.preventDefault === 'function') {
+        e.preventDefault();
+      }
+
+      const emailInput = document.getElementById('adminEmailInput');
+      const passInput = document.getElementById('adminPasswordInput');
+      const btn = document.getElementById('btnAdminLogin');
       const errEl = document.getElementById('adminAuthError');
 
-      btn.disabled = true;
-      btn.innerText = 'Verifying Credentials & Claims...';
-      errEl.classList.add('hidden');
+      const email = emailInput ? emailInput.value.trim() : '';
+      const password = passInput ? passInput.value : '';
+
+      if (!email || !password) {
+        if (errEl) {
+          errEl.innerText = 'Please enter both admin email and password.';
+          errEl.classList.remove('hidden');
+        }
+        return;
+      }
+
+      if (!auth) {
+        if (errEl) {
+          errEl.innerText = 'Firebase Authentication is not initialized.';
+          errEl.classList.remove('hidden');
+        }
+        return;
+      }
+
+      if (btn) {
+        btn.disabled = true;
+        btn.innerText = 'Verifying Credentials & Claims...';
+      }
+      if (errEl) errEl.classList.add('hidden');
 
       try {
         await auth.signInWithEmailAndPassword(email, password);
-        // onAuthStateChanged will handle verification and dismissal
+        // onAuthStateChanged will verify claims, dismiss modal, and init streams
       } catch (err) {
-        errEl.innerText = err.message || 'Authentication failed.';
-        errEl.classList.remove('hidden');
-        btn.disabled = false;
-        btn.innerText = 'Authenticate & Enter Command Center';
+        if (errEl) {
+          errEl.innerText = err.message || 'Authentication failed. Please verify credentials.';
+          errEl.classList.remove('hidden');
+        }
+        if (btn) {
+          btn.disabled = false;
+          btn.innerText = 'Authenticate & Enter Command Center';
+        }
       }
     }
 

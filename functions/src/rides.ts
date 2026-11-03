@@ -4,6 +4,10 @@
  */
 
 import * as admin from 'firebase-admin';
+
+function getAdmin(): any {
+  return (admin as any).default || admin;
+}
 import * as crypto from 'crypto';
 import { getPlatformSettings } from './config.js';
 import { createAndDispatchOffers } from './dispatch.js';
@@ -30,10 +34,10 @@ export async function executeRequestRide(
   callerUid: string,
   payload: RequestRidePayload
 ): Promise<{ ride_id: string; fare_egp: number; distance_km: number; pin: string; offers_dispatched: number }> {
-  const db = admin.firestore();
+  const db = getAdmin().firestore();
   const settings = await getPlatformSettings();
 
-  // 1. Validate Caller Profile
+  // 1. Validate Caller Profile & Strict Role Enforcement
   const userDoc = await db.collection('users').doc(callerUid).get();
   if (!userDoc.exists) {
     throw new Error('USER_NOT_FOUND: User profile does not exist.');
@@ -41,6 +45,58 @@ export async function executeRequestRide(
   const userData = userDoc.data();
   if (!userData?.is_active) {
     throw new Error('ACCOUNT_DISABLED: Account is deactivated.');
+  }
+  if (userData?.role !== 'rider') {
+    throw new Error('FORBIDDEN: Only registered rider accounts can create ride requests.');
+  }
+
+  // 1b. Validate Payload & Egyptian Coordinates Bounds
+  if (!payload.tier || !['standard', 'rafik_girl'].includes(payload.tier)) {
+    throw new Error('INVALID_TIER: Tier must be standard or rafik_girl.');
+  }
+  if (
+    typeof payload.pickup_lat !== 'number' ||
+    typeof payload.pickup_lng !== 'number' ||
+    typeof payload.dropoff_lat !== 'number' ||
+    typeof payload.dropoff_lng !== 'number' ||
+    !Number.isFinite(payload.pickup_lat) ||
+    !Number.isFinite(payload.pickup_lng) ||
+    !Number.isFinite(payload.dropoff_lat) ||
+    !Number.isFinite(payload.dropoff_lng)
+  ) {
+    throw new Error('INVALID_COORDINATES: Pickup and dropoff coordinates must be finite numbers.');
+  }
+
+  // Cairo / Egypt coordinate boundaries: Lat [21.0, 32.5], Lng [24.0, 37.0]
+  if (
+    payload.pickup_lat < 21.0 || payload.pickup_lat > 32.5 ||
+    payload.pickup_lng < 24.0 || payload.pickup_lng > 37.0 ||
+    payload.dropoff_lat < 21.0 || payload.dropoff_lat > 32.5 ||
+    payload.dropoff_lng < 24.0 || payload.dropoff_lng > 37.0
+  ) {
+    throw new Error('OUT_OF_BOUNDS: Coordinates must be within Egyptian operational service boundaries.');
+  }
+
+  if (
+    !payload.pickup_address ||
+    typeof payload.pickup_address !== 'string' ||
+    payload.pickup_address.trim().length === 0 ||
+    payload.pickup_address.length > 200
+  ) {
+    throw new Error('INVALID_ADDRESS: Pickup address is missing or exceeds allowed length.');
+  }
+
+  if (
+    !payload.dropoff_address ||
+    typeof payload.dropoff_address !== 'string' ||
+    payload.dropoff_address.trim().length === 0 ||
+    payload.dropoff_address.length > 200
+  ) {
+    throw new Error('INVALID_ADDRESS: Dropoff address is missing or exceeds allowed length.');
+  }
+
+  if (payload.payment_method && !['cash', 'wallet', 'card', 'instapay'].includes(payload.payment_method)) {
+    throw new Error('INVALID_PAYMENT_METHOD: Unsupported payment method.');
   }
 
   // 2. Rafik Girl Tier Restriction
@@ -73,8 +129,8 @@ export async function executeRequestRide(
   const rideRef = db.collection('rides').doc();
   const ttlMs = settings.dispatch.ride_request_ttl_seconds * 1000;
   const expansionIntervalMs = (settings.dispatch.expansion_interval_seconds || 30) * 1000;
-  const expiresAt = admin.firestore.Timestamp.fromMillis(Date.now() + ttlMs);
-  const nextExpansionAt = admin.firestore.Timestamp.fromMillis(Date.now() + expansionIntervalMs);
+  const expiresAt = getAdmin().firestore.Timestamp.fromMillis(Date.now() + ttlMs);
+  const nextExpansionAt = getAdmin().firestore.Timestamp.fromMillis(Date.now() + expansionIntervalMs);
 
   const rideData: RideDocument = {
     ride_id: rideRef.id,
@@ -104,7 +160,7 @@ export async function executeRequestRide(
     current_radius: settings.dispatch.initial_radius_km,
     next_expansion_at: nextExpansionAt,
     dispatched_driver_ids: [],
-    requested_at: admin.firestore.FieldValue.serverTimestamp(),
+    requested_at: getAdmin().firestore.FieldValue.serverTimestamp(),
     expires_at: expiresAt,
   };
 
@@ -112,13 +168,13 @@ export async function executeRequestRide(
     pin: randomPin,
     attempts: 0,
     is_locked: false,
-    created_at: admin.firestore.FieldValue.serverTimestamp(),
+    created_at: getAdmin().firestore.FieldValue.serverTimestamp(),
   };
 
   // 6. Atomic Active Ride Reservation & Document Creation (Requirement H)
   const riderReservationRef = db.collection('rider_reservations').doc(callerUid);
 
-  await db.runTransaction(async (transaction) => {
+  await db.runTransaction(async (transaction: any) => {
     const reservationSnap = await transaction.get(riderReservationRef);
     if (reservationSnap.exists && reservationSnap.data()?.status === 'active') {
       throw new Error('ACTIVE_RIDE_EXISTS: You already have an active ride request in progress.');
@@ -127,7 +183,7 @@ export async function executeRequestRide(
     transaction.set(riderReservationRef, {
       status: 'active',
       ride_id: rideRef.id,
-      updated_at: admin.firestore.FieldValue.serverTimestamp(),
+      updated_at: getAdmin().firestore.FieldValue.serverTimestamp(),
     });
 
     transaction.set(rideRef, rideData);
@@ -158,9 +214,9 @@ export async function executeAcceptRide(
   driverUid: string,
   offerId: string
 ): Promise<{ success: boolean; ride_id: string }> {
-  const db = admin.firestore();
+  const db = getAdmin().firestore();
 
-  const result = await db.runTransaction(async (transaction) => {
+  const result = await db.runTransaction(async (transaction: any) => {
     // 1. Read Offer
     const offerRef = db.collection('ride_offers').doc(offerId);
     const offerSnap = await transaction.get(offerRef);
@@ -215,14 +271,14 @@ export async function executeAcceptRide(
       driver_phone: driverPhone,
       vehicle_plate: vehiclePlate,
       vehicle_model: vehicleModel,
-      accepted_at: admin.firestore.FieldValue.serverTimestamp(),
+      accepted_at: getAdmin().firestore.FieldValue.serverTimestamp(),
     });
 
     // 4. Mark driver as busy
     transaction.update(driverRef, {
       is_busy: true,
       current_ride_id: rideId,
-      updated_at: admin.firestore.FieldValue.serverTimestamp(),
+      updated_at: getAdmin().firestore.FieldValue.serverTimestamp(),
     });
 
     // 5. Mark this offer accepted
@@ -249,7 +305,7 @@ export async function executeAcceptRide(
 
   // 7. Update RTDB driver availability flag & active_rider_id for live tracking
   try {
-    await admin.database().ref(`driver_locations/${driverUid}`).update({
+    await getAdmin().database().ref(`driver_locations/${driverUid}`).update({
       is_busy: true,
       active_rider_id: result.riderId,
     });
@@ -261,7 +317,7 @@ export async function executeAcceptRide(
     // Look up rider token if available
     const riderToken = userDoc.data()?.fcm_token;
     if (riderToken) {
-      await admin.messaging().send({
+      await getAdmin().messaging().send({
         token: riderToken,
         notification: {
           title: 'تم قبول طلبك! 🚗',
@@ -286,7 +342,7 @@ export async function executeMarkArrived(
   driverUid: string,
   rideId: string
 ): Promise<{ success: boolean }> {
-  const db = admin.firestore();
+  const db = getAdmin().firestore();
   const settings = await getPlatformSettings();
   const rideRef = db.collection('rides').doc(rideId);
   const rideSnap = await rideRef.get();
@@ -302,7 +358,7 @@ export async function executeMarkArrived(
   }
 
   // 1. Fetch live telemetry coordinates directly from RTDB using Admin SDK
-  const rtdb = admin.database();
+  const rtdb = getAdmin().database();
   const telemetrySnap = await rtdb.ref(`driver_locations/${driverUid}`).once('value');
 
   if (!telemetrySnap.exists()) {
@@ -342,7 +398,7 @@ export async function executeMarkArrived(
 
   await rideRef.update({
     status: 'arrived',
-    arrived_at: admin.firestore.FieldValue.serverTimestamp(),
+    arrived_at: getAdmin().firestore.FieldValue.serverTimestamp(),
   });
 
   return { success: true };
@@ -362,14 +418,14 @@ export async function executeVerifyPinAndStartTrip(
     throw new Error('INVALID_PIN_FORMAT: PIN must be exactly 4 numeric digits.');
   }
 
-  const db = admin.firestore();
+  const db = getAdmin().firestore();
   const settings = await getPlatformSettings();
   const maxAttempts = settings.safety.max_pin_attempts;
 
   const rideRef = db.collection('rides').doc(rideId);
   const pinRef = rideRef.collection('security').doc('pin_data');
 
-  return db.runTransaction(async (transaction) => {
+  return db.runTransaction(async (transaction: any) => {
     const rideSnap = await transaction.get(rideRef);
     if (!rideSnap.exists) throw new Error('RIDE_NOT_FOUND');
     const ride = rideSnap.data();
@@ -393,7 +449,7 @@ export async function executeVerifyPinAndStartTrip(
       // PIN Correct: Start Trip
       transaction.update(rideRef, {
         status: 'in_progress',
-        started_at: admin.firestore.FieldValue.serverTimestamp(),
+        started_at: getAdmin().firestore.FieldValue.serverTimestamp(),
       });
       return { success: true, status: 'in_progress', attempts_left: maxAttempts - pinData.attempts, is_locked: false };
     } else {
@@ -424,9 +480,9 @@ export async function executeCompleteRide(
   driverUid: string,
   rideId: string
 ): Promise<{ success: boolean; fare_egp: number; driver_earnings_egp: number }> {
-  const db = admin.firestore();
+  const db = getAdmin().firestore();
 
-  const result = await db.runTransaction(async (transaction) => {
+  const result = await db.runTransaction(async (transaction: any) => {
     const rideRef = db.collection('rides').doc(rideId);
     const rideSnap = await transaction.get(rideRef);
     if (!rideSnap.exists) throw new Error('RIDE_NOT_FOUND');
@@ -448,7 +504,7 @@ export async function executeCompleteRide(
     // 1. Update Ride Status
     transaction.update(rideRef, {
       status: 'completed',
-      completed_at: admin.firestore.FieldValue.serverTimestamp(),
+      completed_at: getAdmin().firestore.FieldValue.serverTimestamp(),
     });
 
     // 2. Free Driver & Credit Wallet
@@ -456,9 +512,9 @@ export async function executeCompleteRide(
     transaction.update(driverRef, {
       is_busy: false,
       current_ride_id: null,
-      total_trips: admin.firestore.FieldValue.increment(1),
-      wallet_balance_egp: admin.firestore.FieldValue.increment(earnings),
-      updated_at: admin.firestore.FieldValue.serverTimestamp(),
+      total_trips: getAdmin().firestore.FieldValue.increment(1),
+      wallet_balance_egp: getAdmin().firestore.FieldValue.increment(earnings),
+      updated_at: getAdmin().firestore.FieldValue.serverTimestamp(),
     });
 
     // 3. Create Immutable Ledger Record
@@ -471,7 +527,7 @@ export async function executeCompleteRide(
       amount_egp: earnings,
       kind: 'trip_earnings',
       status: 'settled',
-      created_at: admin.firestore.FieldValue.serverTimestamp(),
+      created_at: getAdmin().firestore.FieldValue.serverTimestamp(),
     });
 
     // 4. Release Rider Active Reservation (Requirement H)
@@ -479,7 +535,7 @@ export async function executeCompleteRide(
     transaction.set(riderReservationRef, {
       status: 'idle',
       ride_id: null,
-      updated_at: admin.firestore.FieldValue.serverTimestamp(),
+      updated_at: getAdmin().firestore.FieldValue.serverTimestamp(),
     });
 
     return { fare, earnings, riderId: ride.rider_id };
@@ -499,7 +555,7 @@ export async function executeCancelRide(
   rideId: string,
   reason: string
 ): Promise<{ success: boolean }> {
-  const db = admin.firestore();
+  const db = getAdmin().firestore();
   const rideRef = db.collection('rides').doc(rideId);
   const rideSnap = await rideRef.get();
 
@@ -522,7 +578,7 @@ export async function executeCancelRide(
     status: 'cancelled',
     cancelled_by: isRider ? 'rider' : 'driver',
     cancellation_reason: reason,
-    cancelled_at: admin.firestore.FieldValue.serverTimestamp(),
+    cancelled_at: getAdmin().firestore.FieldValue.serverTimestamp(),
   });
 
   if (ride?.driver_id) {
@@ -536,7 +592,7 @@ export async function executeCancelRide(
   batch.set(db.collection('rider_reservations').doc(ride.rider_id), {
     status: 'idle',
     ride_id: null,
-    updated_at: admin.firestore.FieldValue.serverTimestamp(),
+    updated_at: getAdmin().firestore.FieldValue.serverTimestamp(),
   });
 
   await batch.commit();
@@ -563,11 +619,11 @@ export async function executeRateRide(
     throw new Error('INVALID_RATING: Rating must be a finite number between 1.0 and 5.0.');
   }
 
-  const db = admin.firestore();
+  const db = getAdmin().firestore();
   const rideRef = db.collection('rides').doc(rideId);
   const ratingRecordRef = rideRef.collection('ratings').doc(callerUid);
 
-  return db.runTransaction(async (transaction) => {
+  return db.runTransaction(async (transaction: any) => {
     const rideSnap = await transaction.get(rideRef);
     if (!rideSnap.exists) throw new Error('RIDE_NOT_FOUND: Ride does not exist.');
     const ride = rideSnap.data() as RideDocument;
@@ -617,7 +673,7 @@ export async function executeRateRide(
       role: isRider ? 'rider' : 'driver',
       rating: rating,
       review: review ?? null,
-      created_at: admin.firestore.FieldValue.serverTimestamp(),
+      created_at: getAdmin().firestore.FieldValue.serverTimestamp(),
     });
 
     // Update ride document

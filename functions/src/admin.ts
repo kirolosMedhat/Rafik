@@ -5,6 +5,10 @@
  */
 
 import * as admin from 'firebase-admin';
+
+function getAdmin(): any {
+  return (admin as any).default || admin;
+}
 import { invalidateSettingsCache } from './config.js';
 import { PlatformSettings } from './types.js';
 
@@ -12,12 +16,12 @@ import { PlatformSettings } from './types.js';
  * Asserts that the caller possesses system administrator privileges.
  */
 export async function assertAdmin(callerUid: string): Promise<void> {
-  const user = await admin.auth().getUser(callerUid);
+  const user = await getAdmin().auth().getUser(callerUid);
   const claims = user.customClaims;
   const isAdminClaim = claims?.role === 'admin' || claims?.admin === true;
 
   if (!isAdminClaim) {
-    const adminDoc = await admin.firestore().collection('admin_users').doc(callerUid).get();
+    const adminDoc = await getAdmin().firestore().collection('admin_users').doc(callerUid).get();
     if (!adminDoc.exists || !adminDoc.data()?.is_active) {
       throw new Error('FORBIDDEN: Requires administrative privileges.');
     }
@@ -35,7 +39,7 @@ export async function executeAdminReviewDriver(
   confirmFemale = false
 ): Promise<{ success: boolean }> {
   await assertAdmin(callerUid);
-  const db = admin.firestore();
+  const db = getAdmin().firestore();
 
   const driverRef = db.collection('drivers').doc(driverId);
   const driverSnap = await driverRef.get();
@@ -47,8 +51,8 @@ export async function executeAdminReviewDriver(
       status: 'approved',
       rejection_reason: null,
       approved_by: callerUid,
-      approved_at: admin.firestore.FieldValue.serverTimestamp(),
-      updated_at: admin.firestore.FieldValue.serverTimestamp(),
+      approved_at: getAdmin().firestore.FieldValue.serverTimestamp(),
+      updated_at: getAdmin().firestore.FieldValue.serverTimestamp(),
     });
 
     // 2. Mark All 6 KYC Document Sides Approved
@@ -58,7 +62,7 @@ export async function executeAdminReviewDriver(
       batch.update(doc.ref, {
         status: 'approved',
         reviewed_by: callerUid,
-        reviewed_at: admin.firestore.FieldValue.serverTimestamp(),
+        reviewed_at: getAdmin().firestore.FieldValue.serverTimestamp(),
       });
     }
     await batch.commit();
@@ -67,12 +71,12 @@ export async function executeAdminReviewDriver(
     if (confirmFemale) {
       await db.collection('users').doc(driverId).update({
         gender_verified: true,
-        updated_at: admin.firestore.FieldValue.serverTimestamp(),
+        updated_at: getAdmin().firestore.FieldValue.serverTimestamp(),
       });
     }
 
     // 4. Update Firebase Auth Custom Claims (Approved Captain Token)
-    await admin.auth().setCustomUserClaims(driverId, {
+    await getAdmin().auth().setCustomUserClaims(driverId, {
       role: 'driver',
       driver: true,
       approved: true,
@@ -82,11 +86,11 @@ export async function executeAdminReviewDriver(
     // 5. Update RTDB Location Status & Clear Any Suspension
     try {
       await Promise.all([
-        admin.database().ref(`driver_locations/${driverId}`).update({
+        getAdmin().database().ref(`driver_locations/${driverId}`).update({
           status: 'approved',
           gender_verified: confirmFemale,
         }),
-        admin.database().ref(`suspended_drivers/${driverId}`).remove(),
+        getAdmin().database().ref(`suspended_drivers/${driverId}`).remove(),
       ]);
     } catch (_) {}
 
@@ -101,10 +105,10 @@ export async function executeAdminReviewDriver(
       rejection_reason: reason.trim(),
       approved_by: null,
       approved_at: null,
-      updated_at: admin.firestore.FieldValue.serverTimestamp(),
+      updated_at: getAdmin().firestore.FieldValue.serverTimestamp(),
     });
 
-    await admin.auth().setCustomUserClaims(driverId, {
+    await getAdmin().auth().setCustomUserClaims(driverId, {
       role: 'driver',
       driver: true,
       approved: false,
@@ -112,11 +116,11 @@ export async function executeAdminReviewDriver(
 
     try {
       await Promise.all([
-        admin.database().ref(`driver_locations/${driverId}`).update({
+        getAdmin().database().ref(`driver_locations/${driverId}`).update({
           status: 'rejected',
           is_online: false,
         }),
-        admin.database().ref(`driver_presence/${driverId}`).set({
+        getAdmin().database().ref(`driver_presence/${driverId}`).set({
           state: 'offline',
           last_changed: Date.now(),
         }),
@@ -138,7 +142,7 @@ export async function executeAdminSuspendDriver(
   reason?: string
 ): Promise<{ success: boolean }> {
   await assertAdmin(callerUid);
-  const db = admin.firestore();
+  const db = getAdmin().firestore();
 
   const driverRef = db.collection('drivers').doc(driverId);
   const driverSnap = await driverRef.get();
@@ -149,16 +153,16 @@ export async function executeAdminSuspendDriver(
     status: 'suspended',
     rejection_reason: reason ?? 'Account suspended by platform administration',
     is_online: false,
-    updated_at: admin.firestore.FieldValue.serverTimestamp(),
+    updated_at: getAdmin().firestore.FieldValue.serverTimestamp(),
   });
 
   // 2. Revoke Firebase Auth Refresh Tokens immediately
   try {
-    await admin.auth().revokeRefreshTokens(driverId);
+    await getAdmin().auth().revokeRefreshTokens(driverId);
   } catch (_) {}
 
   // 3. Update Custom Claims
-  await admin.auth().setCustomUserClaims(driverId, {
+  await getAdmin().auth().setCustomUserClaims(driverId, {
     role: 'driver',
     driver: true,
     approved: false,
@@ -167,7 +171,7 @@ export async function executeAdminSuspendDriver(
 
   // 4. Server-Authoritative RTDB Revocation Node (Instant revocation for active WebSockets & unexpired tokens)
   try {
-    const rtdb = admin.database();
+    const rtdb = getAdmin().database();
     await Promise.all([
       rtdb.ref(`suspended_drivers/${driverId}`).set({
         suspended_at: Date.now(),
@@ -197,7 +201,7 @@ export async function executeAdminReviewIdentity(
   reason?: string
 ): Promise<{ success: boolean }> {
   await assertAdmin(callerUid);
-  const db = admin.firestore();
+  const db = getAdmin().firestore();
 
   const userRef = db.collection('users').doc(userId);
   const userSnap = await userRef.get();
@@ -206,11 +210,11 @@ export async function executeAdminReviewIdentity(
   if (approve) {
     await userRef.update({
       gender_verified: true,
-      updated_at: admin.firestore.FieldValue.serverTimestamp(),
+      updated_at: getAdmin().firestore.FieldValue.serverTimestamp(),
     });
 
-    const user = await admin.auth().getUser(userId);
-    await admin.auth().setCustomUserClaims(userId, {
+    const user = await getAdmin().auth().getUser(userId);
+    await getAdmin().auth().setCustomUserClaims(userId, {
       ...user.customClaims,
       gender_verified: true,
     });
@@ -218,7 +222,7 @@ export async function executeAdminReviewIdentity(
     await userRef.update({
       gender_verified: false,
       verification_notes: reason ?? 'Identity documents rejected by administration',
-      updated_at: admin.firestore.FieldValue.serverTimestamp(),
+      updated_at: getAdmin().firestore.FieldValue.serverTimestamp(),
     });
   }
 
@@ -234,7 +238,7 @@ export async function executeAdminResolveSos(
   notes: string
 ): Promise<{ success: boolean }> {
   await assertAdmin(callerUid);
-  const db = admin.firestore();
+  const db = getAdmin().firestore();
 
   const sosRef = db.collection('sos_events').doc(sosId);
   const sosSnap = await sosRef.get();
@@ -243,7 +247,7 @@ export async function executeAdminResolveSos(
   await sosRef.update({
     status: 'resolved',
     resolved_by: callerUid,
-    resolved_at: admin.firestore.FieldValue.serverTimestamp(),
+    resolved_at: getAdmin().firestore.FieldValue.serverTimestamp(),
     notes: notes.trim(),
   });
 
@@ -259,7 +263,7 @@ export async function executeAdminUpdateSettings(
   newSettings: Partial<PlatformSettings>
 ): Promise<{ success: boolean }> {
   await assertAdmin(callerUid);
-  const db = admin.firestore();
+  const db = getAdmin().firestore();
 
   await db.collection('app_settings').doc('global').set(newSettings, { merge: true });
   invalidateSettingsCache();
@@ -272,7 +276,7 @@ export async function executeAdminUpdateSettings(
  */
 export async function executeGetAdminMetrics(callerUid: string): Promise<Record<string, any>> {
   await assertAdmin(callerUid);
-  const db = admin.firestore();
+  const db = getAdmin().firestore();
 
   const [activeDriversSnap, completedRidesSnap, activeSosSnap] = await Promise.all([
     db.collection('drivers').where('is_online', '==', true).where('status', '==', 'approved').count().get(),

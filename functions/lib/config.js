@@ -5,6 +5,9 @@
  * Nothing is hardcoded.
  */
 import * as admin from 'firebase-admin';
+function getAdmin() {
+    return admin.default || admin;
+}
 // Default baseline configuration if Firestore document is not yet initialized
 export const DEFAULT_PLATFORM_SETTINGS = {
     pricing: {
@@ -41,7 +44,7 @@ export async function getPlatformSettings(forceRefresh = false) {
         return cachedSettings;
     }
     try {
-        const db = admin.firestore();
+        const db = getAdmin().firestore();
         const docSnap = await db.collection('app_settings').doc('global').get();
         if (docSnap.exists) {
             const data = docSnap.data();

@@ -3,6 +3,9 @@
  * Condition 3 & Condition 4 compliant: Handles radius expansion and timeouts authoritatively.
  */
 import * as admin from 'firebase-admin';
+function getAdmin() {
+    return admin.default || admin;
+}
 import { getPlatformSettings } from './config.js';
 import { createAndDispatchOffers } from './dispatch.js';
 /**
@@ -11,9 +14,9 @@ import { createAndDispatchOffers } from './dispatch.js';
  * Requirement E & I compliant.
  */
 export async function executeRadiusExpansionAndExpirationSweep() {
-    const db = admin.firestore();
+    const db = getAdmin().firestore();
     const settings = await getPlatformSettings();
-    const now = admin.firestore.Timestamp.now();
+    const now = getAdmin().firestore.Timestamp.now();
     const nowMs = Date.now();
     let expiredOffersCount = 0;
     let expandedRidesCount = 0;
@@ -42,7 +45,7 @@ export async function executeRadiusExpansionAndExpirationSweep() {
             const driverId = data.driver_id;
             if (driverId) {
                 try {
-                    await admin.database().ref(`driver_locations/${driverId}`).update({
+                    await getAdmin().database().ref(`driver_locations/${driverId}`).update({
                         is_busy: data.is_busy ?? false,
                         active_rider_id: data.active_rider_id ?? null,
                     });
@@ -50,8 +53,8 @@ export async function executeRadiusExpansionAndExpirationSweep() {
                 }
                 catch (_) {
                     await doc.ref.update({
-                        retry_count: admin.firestore.FieldValue.increment(1),
-                        last_attempt_at: admin.firestore.FieldValue.serverTimestamp(),
+                        retry_count: getAdmin().firestore.FieldValue.increment(1),
+                        last_attempt_at: getAdmin().firestore.FieldValue.serverTimestamp(),
                     });
                 }
             }
@@ -83,7 +86,7 @@ export async function executeRadiusExpansionAndExpirationSweep() {
                 await db.collection('rider_reservations').doc(rideData.rider_id).set({
                     status: 'idle',
                     ride_id: null,
-                    updated_at: admin.firestore.FieldValue.serverTimestamp(),
+                    updated_at: getAdmin().firestore.FieldValue.serverTimestamp(),
                 });
             }
             catch (_) { }
@@ -92,7 +95,7 @@ export async function executeRadiusExpansionAndExpirationSweep() {
                 const userDoc = await db.collection('users').doc(rideData.rider_id).get();
                 const riderToken = userDoc.data()?.fcm_token;
                 if (riderToken) {
-                    await admin.messaging().send({
+                    await getAdmin().messaging().send({
                         token: riderToken,
                         notification: {
                             title: 'لم يتم العثور على كابتن 🚗',
@@ -118,7 +121,7 @@ export async function executeRadiusExpansionAndExpirationSweep() {
                 await rideRef.update({
                     dispatch_stage: 2,
                     current_radius: targetRadius,
-                    next_expansion_at: admin.firestore.Timestamp.fromMillis(nowMs + expansionIntervalMs),
+                    next_expansion_at: getAdmin().firestore.Timestamp.fromMillis(nowMs + expansionIntervalMs),
                     dispatched_driver_ids: [...alreadyDispatched, ...result.dispatchedDriverIds],
                 });
                 expandedRidesCount++;
@@ -130,7 +133,7 @@ export async function executeRadiusExpansionAndExpirationSweep() {
                 await rideRef.update({
                     dispatch_stage: 3,
                     current_radius: targetRadius,
-                    next_expansion_at: admin.firestore.Timestamp.fromMillis(expiresAtMs),
+                    next_expansion_at: getAdmin().firestore.Timestamp.fromMillis(expiresAtMs),
                     dispatched_driver_ids: [...alreadyDispatched, ...result.dispatchedDriverIds],
                 });
                 expandedRidesCount++;
@@ -147,12 +150,12 @@ export async function executeRadiusExpansionAndExpirationSweep() {
  * Reliable RTDB Driver Availability Synchronizer with Retry and Outbox Fallback (Requirement I).
  */
 export async function syncDriverAvailability(driverId, isBusy, activeRiderId = null) {
-    const db = admin.firestore();
+    const db = getAdmin().firestore();
     let synced = false;
     // Try direct update up to 3 times
     for (let attempt = 0; attempt < 3; attempt++) {
         try {
-            await admin.database().ref(`driver_locations/${driverId}`).update({
+            await getAdmin().database().ref(`driver_locations/${driverId}`).update({
                 is_busy: isBusy,
                 active_rider_id: activeRiderId,
             });
@@ -173,7 +176,7 @@ export async function syncDriverAvailability(driverId, isBusy, activeRiderId = n
                 active_rider_id: activeRiderId,
                 status: 'pending',
                 retry_count: 0,
-                created_at: admin.firestore.FieldValue.serverTimestamp(),
+                created_at: getAdmin().firestore.FieldValue.serverTimestamp(),
             });
         }
         catch (e) {

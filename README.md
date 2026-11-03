@@ -1,12 +1,13 @@
 # Rafik (رَفِيق) — Next-Generation Ride-Hailing Platform
 
-[![Platform](https://img.shields.io/badge/Platform-Flutter%20%7C%20Supabase-blue.svg)](https://flutter.dev)
+[![Platform](https://img.shields.io/badge/Platform-Flutter%20%7C%20Firebase-orange.svg)](https://flutter.dev)
+[![Backend](https://img.shields.io/badge/Backend-Firebase%20Cloud%20Functions%20v2-yellow.svg)](https://firebase.google.com)
 [![Status](https://img.shields.io/badge/Status-Production%20Hardened-success.svg)]()
-[![Security](https://img.shields.io/badge/Security-RLS%20%2B%20SECURITY%20DEFINER%20RPCs-emerald.svg)]()
+[![Security](https://img.shields.io/badge/Security-Server--Authoritative%20Dispatch-emerald.svg)]()
 [![Copyright](https://img.shields.io/badge/Copyright-Rafik%202026-rose.svg)]()
 
 > **All rights reserved to Rafik 2026.**  
-> *Rafik (رَفِيق)* is an enterprise-grade Egyptian ride-hailing ecosystem built on a pure, serverless **Supabase Cloud** architecture (PostgreSQL, PostGIS, Row Level Security, RPCs, Realtime, and private Storage). It features a dual-tier service model: **Rafik Standard** and the dedicated **Rafik Girl** women-centric safety network.
+> *Rafik (رَفِيق)* is an enterprise-grade Egyptian ride-hailing ecosystem built on a server-authoritative **Firebase Cloud Architecture** (Firebase Auth, Cloud Firestore, Realtime Database, Cloud Functions v2, Firebase Storage, and Firebase Cloud Messaging). It features a dual-tier service model: **Rafik Standard** and the dedicated **Rafik Girl** women-centric safety network.
 
 ---
 
@@ -26,9 +27,9 @@ Rafik is designed specifically for Greater Cairo’s transit dynamics, addressin
 
 ---
 
-## 🏛️ Pure Supabase Architecture
+## 🏛️ 100% Firebase Cloud Architecture
 
-Rafik operates with **zero intermediate application servers**. All business logic, authorization, spatial queries, and safety handshakes are enforced directly inside the database engine.
+Rafik operates with **server-authoritative Cloud Functions v2** and strict security rules. All business logic, fare calculations, atomic driver acceptance races, and safety handshakes are validated and enforced on the server.
 
 ```
 ┌─────────────────────────────────┐       ┌─────────────────────────────────┐
@@ -36,49 +37,39 @@ Rafik operates with **zero intermediate application servers**. All business logi
 │   (Flavored: com.rafik.rider)   │       │   (Flavored: com.rafik.driver)  │
 └────────────────┬────────────────┘       └────────────────┬────────────────┘
                  │                                         │
-                 │         HTTPS / WSS (Supabase SDK)     │
+                 │         HTTPS / WebSocket (Firebase SDK)│
                  └───────────────────┬─────────────────────┘
                                      │
-                   ┌─────────────────┴─────────────────┐
-                   │       Supabase Cloud Engine       │
-                   ├───────────────────────────────────┤
-                   │  • Supabase Auth (OTP / OAuth)    │
-                   │  • PostgreSQL 15 + PostGIS Spatial│
-                   │  • Strict Row Level Security (RLS)│
-                   │  • 16 SECURITY DEFINER RPCs       │
-                   │  • Realtime (postgres_changes)    │
-                   │  • Private Storage (Signed URLs)  │
-                   └─────────────────┬─────────────────┘
+                    ┌────────────────┴─────────────────┐
+                    │      Firebase Cloud Platform     │
+                    ├──────────────────────────────────┤
+                    │  • Firebase Phone Auth (SMS OTP) │
+                    │  • Cloud Functions v2 (Node 20)  │
+                    │  • Cloud Firestore (Standard)    │
+                    │  • Realtime Database (Telemetry) │
+                    │  • Firebase Storage (KYC Vault)  │
+                    │  • Cloud Messaging (FCM Alerts)  │
+                    └────────────────┬─────────────────┘
                                      │
-                   ┌─────────────────┴─────────────────┐
-                   │    Admin Operations Portal        │
-                   │  Static Web App (Vercel/Netlify)  │
-                   │  Leaflet / OSM • KYC Document Q   │
-                   └───────────────────────────────────┘
+                    ┌────────────────┴─────────────────┐
+                    │    Admin Operations Portal       │
+                    │  Static Web App (Vercel/Netlify) │
+                    │  Firebase Compat SDK • KYC Queue │
+                    └──────────────────────────────────┘
 ```
 
-- **Authentication:** Supabase Auth with Phone OTP, Email/Password, and Google Sign-In. Direct phone verification with automatic `profiles` row generation via database trigger.
-- **Row Level Security (RLS):** Enabled on 100% of tables. Direct `INSERT`, `UPDATE`, and `DELETE` on operational tables (`rides`, `ride_pins`, `ride_offers`, `drivers`, `driver_locations`, `wallet_transactions`) are strictly revoked from `anon` and `authenticated` roles.
-- **SECURITY DEFINER RPCs:** All operational transitions are executed via parameterized, audit-safe stored procedures with strict parameter validation and atomic state management:
-  - `compute_fare(km)`
-  - `request_ride(tier, pickup_address, pickup_lat, pickup_lng, dropoff_address, dropoff_lat, dropoff_lng, payment)`
-  - `accept_ride(ride_id)` — Atomic check preventing race conditions between concurrent captains.
-  - `decline_offer(ride_id)`
-  - `mark_arrived(ride_id)`
-  - `start_ride(ride_id, pin)` — Enforces 3-attempt lockout without rolling back failure counters; zero master PIN bypass.
-  - `complete_ride(ride_id)` — Credits captain wallet with 100% fare (0% commission).
-  - `cancel_ride(ride_id, reason)`
-  - `rate_ride(ride_id, stars, review)`
-  - `submit_driver_application(national_id, license_number, make, model, year, plate, color)`
-  - `set_driver_online(online)`
-  - `update_driver_location(lat, lng, heading)`
-  - `trigger_sos(ride_id, lat, lng)`
-  - `admin_review_driver(driver_id, approve, reason, confirm_female)`
-  - `admin_review_identity(user_id, approve, reason)`
-  - `expire_stale_rides()`
-- **Realtime Dispatch:** Broadcasts and driver updates use Supabase Realtime `postgres_changes` respecting database RLS.
-- **Document Vault:** Captain KYC documents (6 photos) and rider identity proofs are stored in private Supabase Storage buckets (`driver-documents` and `identity-documents`). Document inspection in the Admin Portal uses short-lived signed URLs (60-second expiration).
-- **Map & Routing:** OpenStreetMap raster tiles with proper attribution and Open Source routing distance formula (`Haversine * 1.25` Cairo traffic factor).
+- **Authentication:** Firebase Phone Authentication with E.164 SMS OTP (`+201XXXXXXXXX`). Direct phone verification with automatic Firestore `/users/{uid}` profile creation.
+- **Server-Authoritative Cloud Functions:**
+  - `executeRequestRide`: Validates rider role, geofence, and calculates dynamic upfront fare.
+  - `executeAcceptRide`: Uses Firestore transactions to guarantee that only one captain wins concurrent ride acceptance races.
+  - `executeMarkArrived`: Enforces 200m GPS arrival radius.
+  - `executeVerifyPinAndStartTrip`: Validates 4-digit safety PIN with 3-strike lockout and zero master bypass.
+  - `executeCompleteRide`: Finalizes ride and credits driver wallet server-side.
+  - `executeCancelRide`: Restores captain availability immediately.
+  - `executeRateRide`: Updates rolling average ratings atomically.
+- **Realtime Telemetry & Presence:** Firebase Realtime Database with ServerValue.timestamp heartbeat and dual-mode GPS battery optimization (3s moving / 10s stationary). Stale telemetry (>60s) is automatically excluded from dispatch.
+- **Driver Data Privacy:** Sensitive driver records (`/drivers/{driverId}`) containing National ID and license numbers are restricted to the driver owner and authorized administrators. Riders access safe public projections via `/public_drivers/{driverId}`.
+- **KYC Document Vault:** Driver KYC uploads (6-sided inspection) are stored in private Firebase Storage buckets (`kyc/{driverId}/...`) with 5MB limits and MIME whitelisting.
 
 ---
 
@@ -89,6 +80,8 @@ $$\text{Fare (EGP)} = \max\Big(25.00,\, 15.00 + (\text{Distance in km} \times 10
 - **Base Pickup Fare:** 15.00 EGP
 - **Per Kilometer Rate:** 10.00 EGP
 - **Minimum Trip Fare:** 25.00 EGP
+- **Cairo Traffic Multiplier:** 1.25x road distance approximation
+- **Rafik Girl Multiplier:** 1.10x
 - **Platform Commission:** 0.00 EGP (100% earnings to captains)
 
 ---
@@ -97,135 +90,133 @@ $$\text{Fare (EGP)} = \max\Big(25.00,\, 15.00 + (\text{Distance in km} \times 10
 
 ### Prerequisites
 - [Flutter SDK](https://flutter.dev/) (v3.24+)
-- [Supabase CLI](https://supabase.com/docs/guides/cli) (v1.140+)
+- [Node.js](https://nodejs.org/) (v18+)
+- [Java Development Kit](https://openjdk.org/) (JDK 17+)
 - Android Studio / Android SDK (API 34+)
 
 ---
 
-### 1. Database Setup (Supabase Cloud)
+### 1. Backend & Cloud Functions Setup (`functions/`)
 
-1. **Link your Supabase Project:**
+1. **Install Dependencies:**
    ```bash
-   supabase login
-   supabase link --project-ref <your-supabase-project-id>
+   cd functions
+   npm install
    ```
 
-2. **Push Migrations:**
+2. **Build TypeScript:**
    ```bash
-   # Applies 0001_core.sql and 0002_rpcs.sql
-   supabase db push
+   npm run build
    ```
 
-3. **Verify Security Tests:**
-   Execute the pgTAP / SQL security test suite to verify RLS lockdown, RPC constraints, and lockout mechanisms:
+3. **Run Real Emulator Suite:**
+   The test suite runs against the real Firebase Firestore and Realtime Database emulators using `@firebase/rules-unit-testing`:
    ```bash
-   supabase test db
-   # Or run supabase/tests/01_security_and_rpc_test.sql in the SQL Editor
-   ```
-
-4. **Bootstrap Initial Administrator:**
-   Create an admin account via Supabase Auth (or the Admin Portal login screen), then promote it in the Supabase SQL Editor:
-   ```sql
-   UPDATE public.profiles
-   SET role = 'admin'
-   WHERE email = 'admin@rafik.com'; -- Or your admin user ID
+   npm test
    ```
 
 ---
 
 ### 2. Mobile App Setup (`mobile_app/`)
 
-1. **Configure Environment:**
-   Copy the example environment configuration:
+1. **Install Dependencies:**
    ```bash
    cd mobile_app
-   cp env/example.json env/dev.json
-   ```
-   Edit `env/dev.json` with your Supabase URL and Publishable Anon Key:
-   ```json
-   {
-     "SUPABASE_URL": "https://your-project-id.supabase.co",
-     "SUPABASE_PUBLISHABLE_KEY": "your-publishable-anon-key"
-   }
-   ```
-   *(Note: `env/*.json` is gitignored to protect client configs).*
-
-2. **Install Flutter Dependencies:**
-   ```bash
    flutter pub get
    ```
 
+2. **Configure Environment:**
+   Firebase credentials are configured in `mobile_app/lib/firebase_options.dart` and `mobile_app/android/app/google-services.json`.
+
 3. **Run Rider App:**
    ```bash
-   flutter run --flavor rider -t lib/main_rider.dart --dart-define-from-file=env/dev.json
+   flutter run --flavor rider -t lib/main_rider.dart
    ```
 
 4. **Run Driver App:**
    ```bash
-   flutter run --flavor driver -t lib/main_driver.dart --dart-define-from-file=env/dev.json
+   flutter run --flavor driver -t lib/main_driver.dart
    ```
 
-5. **Build Hardened Release APKs:**
+5. **Build Production Release APK:**
+   Release APKs require a release keystore configured in `mobile_app/android/key.properties`:
    ```bash
-   # Rider Release APK
-   flutter build apk --release --flavor rider -t lib/main_rider.dart --dart-define-from-file=env/prod.json
-
-   # Driver Release APK
-   flutter build apk --release --flavor driver -t lib/main_driver.dart --dart-define-from-file=env/prod.json
+   flutter build apk --release
    ```
 
 ---
 
 ### 3. Admin Operations Portal (`admin_portal/`)
 
-The Admin Operations Portal is a 100% static web application that requires zero backend servers.
+The Admin Operations Portal is a static web application powered by the Firebase SDK.
 
 1. **Configure Environment:**
-   Copy the example configuration:
+   Copy the example configuration file:
    ```bash
    cd admin_portal
    cp config.example.js config.js
    ```
-   Edit `config.js`:
+   Populate `config.js` with your Firebase project configuration:
    ```javascript
    window.RAFIK_CONFIG = {
-     SUPABASE_URL: "https://your-project-id.supabase.co",
-     SUPABASE_PUBLISHABLE_KEY: "your-publishable-anon-key"
+     FIREBASE_CONFIG: {
+       apiKey: "YOUR_API_KEY",
+       authDomain: "rafik-98844.firebaseapp.com",
+       projectId: "rafik-98844",
+       storageBucket: "rafik-98844.firebasestorage.app",
+       messagingSenderId: "123456789012",
+       appId: "1:123456789012:web:abcdef123456",
+       databaseURL: "https://rafik-98844-default-rtdb.firebaseio.com"
+     }
    };
    ```
 
-2. **Run Locally:**
-   Open `index.html` using any local static web server:
-   ```bash
-   # Using Python 3:
-   python -m http.server 8080
-   # Using npx serve:
-   npx serve .
+2. **Admin Claim Provisioning:**
+   Administrator accounts authenticate via Firebase Authentication with the custom claim `{ role: 'admin' }` or Firestore user profile `{ role: 'admin' }`:
+   ```javascript
+   // Via Firebase Admin SDK:
+   await admin.auth().setCustomUserClaims(adminUid, { role: 'admin' });
    ```
-   Open the hosted local address (e.g. port 8080) in your browser.
 
-3. **Deploy to Production:**
-   Deploy the `admin_portal/` folder directly to **Cloudflare Pages**, **Vercel**, or **Netlify**:
-   - Build Command: *(None)*
-   - Output Directory: `.`
-   - Ensure `config.js` is generated from your platform's environment variables during deployment or configured in CI/CD.
+3. **Run Locally:**
+   Open `admin_portal/index.html` using any local HTTP server:
+   ```bash
+   npx serve admin_portal
+   ```
 
 ---
 
-## 🗺️ Map Tile Attribution Notice
+## 📁 Repository Structure & Legacy Artifacts Notice
 
-Rafik utilizes OpenStreetMap raster tile layers with Leaflet and Flutter Map.
-- **Attribution:** `© OpenStreetMap contributors`
-- **Production Note:** The default tile server `tile.openstreetmap.org` is intended for development and evaluation under the OSM Tile Usage Policy. Before scaling to commercial production, configure a hosted tile endpoint (such as [MapTiler](https://www.maptiler.com/), [Stadia Maps](https://stadiamaps.com/), or an in-house tile cache).
+```
+.
+├── admin_portal/       # Static Operations & KYC Verification Portal
+├── docs/               # Architecture diagrams, specifications, and project book
+├── functions/          # Firebase Cloud Functions (TypeScript backend)
+│   ├── src/            # Rides, dispatch, spatial, pricing, and triggers
+│   └── test/           # Real Emulator test suite & backend unit tests
+├── mobile_app/         # Unified Flutter Application (Rider & Driver Flavors)
+│   ├── android/        # Android platform configuration & signing configs
+│   ├── lib/            # Clean architecture Flutter presentation & logic
+│   └── test/           # Dart unit tests (Auth, Telemetry, Ride Lifecycle)
+├── database.rules.json # Realtime Database Security Rules
+├── firestore.rules     # Cloud Firestore Security Rules
+├── storage.rules       # Firebase Storage Security Rules
+└── supabase/           # [HISTORICAL AUDIT ARCHIVE] Intentionally retained
+```
+
+> [!NOTE]
+> The `/supabase` directory is intentionally retained in the repository solely as a historical reference and audit trail from Phase 1. The active production system is 100% powered by Firebase Cloud Services.
 
 ---
 
 ## 🔒 Security Best Practices
 
-1. **No Service Role Keys in Clients:** Neither the Flutter mobile applications nor the static Admin Portal require or accept the Supabase `service_role` secret key. All operations execute strictly via user-authenticated contexts or `SECURITY DEFINER` RPCs.
-2. **National ID Algorithm:** The 13th digit of Egyptian National IDs is validated cryptographically (`odd = male`, `even = female`) to prevent gender spoofing on the Rafik Girl tier.
-3. **Trip PIN Handshake:** PINs are stored in a dedicated `ride_pins` table inaccessible to drivers via SELECT policies. Drivers can only submit a candidate PIN via the `start_ride` RPC. After 3 incorrect attempts, the ride is locked against brute force.
-4. **Distress Protocol (SOS):** Initiating an emergency triggers the `trigger_sos` RPC, broadcasting real-time coordinates to the Admin Command Center while immediately launching a phone call to Egyptian Police (`122`).
+1. **Zero Client Authority:** All fares, driver assignments, ride status transitions, and wallet updates are executed strictly by Cloud Functions.
+2. **National ID Algorithm:** The 13th digit of Egyptian National IDs is validated cryptographically (`odd = male`, `even = female`) to enforce safety parity on the Rafik Girl tier.
+3. **Trip PIN Handshake:** PINs are stored in `/rides/{rideId}/security/pin_data`, which is blocked from driver reads. Drivers verify PINs exclusively through `executeVerifyPinAndStartTrip`.
+4. **Driver Data Privacy:** National ID and license numbers in `/drivers/{driverId}` are shielded from riders; only public profile projections are exposed.
+5. **Real-time Distress Protocol (SOS):** Emergency alerts immediately update Firestore and launch native phone dialing to Egyptian Police (`122`).
 
 ---
 
