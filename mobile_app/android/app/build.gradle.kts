@@ -40,7 +40,10 @@ android {
                 keyAlias = keystoreProperties.getProperty("keyAlias")
                 keyPassword = keystoreProperties.getProperty("keyPassword")
                 val storePath = keystoreProperties.getProperty("storeFile")
-                val resolvedFile = storePath?.let { file(it) }
+                val resolvedFile = storePath?.let { path ->
+                    val rootFile = rootProject.file(path)
+                    if (rootFile.exists()) rootFile else file(path)
+                }
                 if (resolvedFile == null || !resolvedFile.exists()) {
                     throw GradleException("Production release keystore file not found at: $storePath. Release builds require a valid signed keystore.")
                 }
