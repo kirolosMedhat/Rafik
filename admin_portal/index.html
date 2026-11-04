@@ -17,11 +17,12 @@
   
   <!-- Runtime Config & Firebase Production SDKs -->
   <script src="config.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-functions-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-functions-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
 
   <script>
     tailwind.config = {
@@ -570,8 +571,12 @@
         }
         auth = firebase.auth();
         firestoreDb = firebase.firestore();
-        functions = firebase.functions('europe-west1');
-        storage = firebase.storage();
+        if (typeof firebase.app === 'function' && typeof firebase.app().functions === 'function') {
+          functions = firebase.app().functions('europe-west1');
+        }
+        if (typeof firebase.storage === 'function') {
+          storage = firebase.storage();
+        }
         console.log('[Admin Portal] Firebase Engine connected successfully.');
       }
     } catch (e) {

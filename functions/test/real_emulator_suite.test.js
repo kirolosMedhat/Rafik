@@ -8,7 +8,19 @@ import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { initializeTestEnvironment, assertFails, assertSucceeds } from '@firebase/rules-unit-testing';
 import admin from 'firebase-admin';
-import { executeRequestRide, executeRateRide } from '../lib/rides.js';
+import {
+  executeRequestRide,
+  executeAcceptRide,
+  executeMarkArrived,
+  executeVerifyPinAndStartTrip,
+  executeCompleteRide,
+  executeCancelRide,
+  executeRateRide,
+} from '../lib/rides.js';
+import {
+  executeAdminReviewDriver,
+  executeAdminSuspendDriver,
+} from '../lib/admin.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -17,7 +29,7 @@ const PROJECT_ID = 'rafik-98844';
 const FIRESTORE_PORT = 8088;
 const RTDB_PORT = 9005;
 
-async function waitPort(port, maxAttempts = 35) {
+async function waitPort(port, maxAttempts = 60) {
   for (let i = 0; i < maxAttempts; i++) {
     try {
       await new Promise((resolve, reject) => {
@@ -83,6 +95,11 @@ describe('RAFIK Real Firebase Emulator Suite — Rules, Privacy & Concurrency', 
       '--host', '127.0.0.1',
     ], { stdio: 'pipe' });
 
+    let firestoreErr = '';
+    let rtdbErr = '';
+    firestoreProc.stderr?.on('data', (d) => { firestoreErr += d.toString(); });
+    rtdbProc.stderr?.on('data', (d) => { rtdbErr += d.toString(); });
+
     const [firestoreReady, rtdbReady] = await Promise.all([
       waitPort(FIRESTORE_PORT),
       waitPort(RTDB_PORT),
@@ -91,19 +108,23 @@ describe('RAFIK Real Firebase Emulator Suite — Rules, Privacy & Concurrency', 
     if (!firestoreReady) {
       if (firestoreProc) firestoreProc.kill();
       if (rtdbProc) rtdbProc.kill();
-      throw new Error(`CRITICAL: Firestore emulator failed to bind on port ${FIRESTORE_PORT}.`);
+      throw new Error(`CRITICAL: Firestore emulator failed to bind on port ${FIRESTORE_PORT}. Stderr: ${firestoreErr}`);
     }
     if (!rtdbReady) {
       if (firestoreProc) firestoreProc.kill();
       if (rtdbProc) rtdbProc.kill();
-      throw new Error(`CRITICAL: RTDB emulator failed to bind on port ${RTDB_PORT}.`);
+      throw new Error(`CRITICAL: RTDB emulator failed to bind on port ${RTDB_PORT}. Stderr: ${rtdbErr}`);
     }
 
     process.env.FIRESTORE_EMULATOR_HOST = '127.0.0.1:' + FIRESTORE_PORT;
     process.env.FIREBASE_DATABASE_EMULATOR_HOST = '127.0.0.1:' + RTDB_PORT;
-    if (!admin.apps.length) {
-      admin.initializeApp({ projectId: PROJECT_ID });
+    for (const app of admin.apps) {
+      await app.delete();
     }
+    admin.initializeApp({
+      projectId: PROJECT_ID,
+      databaseURL: `http://127.0.0.1:${RTDB_PORT}/?ns=${PROJECT_ID}`,
+    });
 
     testEnv = await initializeTestEnvironment({
       projectId: PROJECT_ID,
@@ -121,6 +142,14 @@ describe('RAFIK Real Firebase Emulator Suite — Rules, Privacy & Concurrency', 
   });
 
   after(async () => {
+    try {
+      if (admin.apps.length) {
+        admin.database().goOffline();
+        for (const app of admin.apps) {
+          await app.delete();
+        }
+      }
+    } catch (_) {}
     if (testEnv) await testEnv.cleanup();
     if (firestoreProc) firestoreProc.kill();
     if (rtdbProc) rtdbProc.kill();
@@ -313,45 +342,76 @@ describe('RAFIK Real Firebase Emulator Suite — Rules, Privacy & Concurrency', 
   });
 
   // ==========================================================================
-  // 4. ATOMIC CONCURRENT DRIVER ACCEPTANCE IN FIRESTORE TRANSACTIONS
+  // 4. ATOMIC CONCURRENT DRIVER ACCEPTANCE WITH PRODUCTION executeAcceptRide
   // ==========================================================================
-  describe('4. Atomic Concurrent Driver Acceptance Race in Real Firestore', () => {
-    it('guarantees that when two drivers accept the same ride simultaneously, exactly one succeeds and the other fails', async () => {
+  describe('4. Atomic Concurrent Driver Acceptance Race via Production executeAcceptRide', () => {
+    it('guarantees that when two drivers accept the same ride simultaneously via production executeAcceptRide, exactly one succeeds and the other fails', async () => {
       const rideId = 'ride_race_real_01';
+      const offer1Id = 'offer_race_01';
+      const offer2Id = 'offer_race_02';
 
       await testEnv.withSecurityRulesDisabled(async (adminCtx) => {
         const db = adminCtx.firestore();
+
+        // 1. Seed ride
         await db.collection('rides').doc(rideId).set({
           ride_id: rideId,
+          rider_id: 'rider_01',
+          tier: 'standard',
           status: 'requested',
           driver_id: null,
           fare_egp: 75.0,
+          driver_earnings_egp: 75.0,
+          created_at: new Date(),
+        });
+
+        // 2. Seed drivers, users, vehicles
+        for (const driverId of ['driver_1', 'driver_2']) {
+          await db.collection('drivers').doc(driverId).set({
+            driver_id: driverId,
+            status: 'approved',
+            is_busy: false,
+            is_online: true,
+            national_id_number: '29801011234567',
+            license_number: `LIC-${driverId}`,
+          });
+          await db.collection('users').doc(driverId).set({
+            uid: driverId,
+            full_name: `Captain ${driverId}`,
+            phone: '+201012345678',
+            role: 'driver',
+            is_active: true,
+          });
+          await db.collection('vehicles').doc(driverId).set({
+            driver_id: driverId,
+            plate_number: `CAIRO-${driverId}`,
+            make: 'Toyota',
+            model: 'Corolla',
+          });
+        }
+
+        // 3. Seed targeted offers for both drivers
+        const futureExpiry = new Date(Date.now() + 60000);
+        await db.collection('ride_offers').doc(offer1Id).set({
+          offer_id: offer1Id,
+          ride_id: rideId,
+          driver_id: 'driver_1',
+          status: 'pending',
+          expires_at: futureExpiry,
+        });
+        await db.collection('ride_offers').doc(offer2Id).set({
+          offer_id: offer2Id,
+          ride_id: rideId,
+          driver_id: 'driver_2',
+          status: 'pending',
+          expires_at: futureExpiry,
         });
       });
 
-      // Two drivers attempt atomic transaction
-      const driver1Ctx = testEnv.authenticatedContext('driver_1', { role: 'admin' });
-      const driver2Ctx = testEnv.authenticatedContext('driver_2', { role: 'admin' });
-
-      async function attemptAccept(ctx, driverUid) {
-        const db = ctx.firestore();
-        return db.runTransaction(async (transaction) => {
-          const rideRef = db.collection('rides').doc(rideId);
-          const rideSnap = await transaction.get(rideRef);
-          if (rideSnap.data().status !== 'requested') {
-            throw new Error('RIDE_ALREADY_ACCEPTED');
-          }
-          transaction.update(rideRef, {
-            status: 'accepted',
-            driver_id: driverUid,
-          });
-          return { winner: driverUid };
-        });
-      }
-
+      // Execute actual production executeAcceptRide concurrently!
       const results = await Promise.allSettled([
-        attemptAccept(driver1Ctx, 'driver_1'),
-        attemptAccept(driver2Ctx, 'driver_2'),
+        executeAcceptRide('driver_1', offer1Id),
+        executeAcceptRide('driver_2', offer2Id),
       ]);
 
       const fulfilled = results.filter((r) => r.status === 'fulfilled');
@@ -359,13 +419,18 @@ describe('RAFIK Real Firebase Emulator Suite — Rules, Privacy & Concurrency', 
 
       assert.equal(fulfilled.length, 1, 'Exactly one driver must win the race');
       assert.equal(rejected.length, 1, 'Competing driver must be rejected');
-      assert.match(rejected[0].reason.message, /RIDE_ALREADY_ACCEPTED/);
+      assert.match(rejected[0].reason.message, /RIDE_ALREADY_ACCEPTED|OFFER_UNAVAILABLE/);
 
-      // Verify final document state
+      // Verify that winning driver is assigned on the ride document and competing offer is cancelled
       await testEnv.withSecurityRulesDisabled(async (adminCtx) => {
         const doc = await adminCtx.firestore().collection('rides').doc(rideId).get();
         assert.equal(doc.data().status, 'accepted');
-        assert.ok(['driver_1', 'driver_2'].includes(doc.data().driver_id));
+        const winner = doc.data().driver_id;
+        assert.ok(['driver_1', 'driver_2'].includes(winner));
+
+        const loserOfferId = winner === 'driver_1' ? offer2Id : offer1Id;
+        const loserOfferDoc = await adminCtx.firestore().collection('ride_offers').doc(loserOfferId).get();
+        assert.equal(loserOfferDoc.data().status, 'cancelled');
       });
     });
   });
@@ -474,6 +539,331 @@ describe('RAFIK Real Firebase Emulator Suite — Rules, Privacy & Concurrency', 
           updated_at: now + 60000, // 60 seconds into future
         })
       );
+    });
+  });
+
+  // ==========================================================================
+  // 7. COMPLETE MULTI-ACTOR E2E RIDE LIFECYCLE & CROSS-SESSION SYNCHRONIZATION
+  // ==========================================================================
+  describe('7. Multi-Actor Production End-to-End Ride Lifecycle & State Machine', () => {
+    it('executes a complete ride lifecycle: request -> accept -> arrive -> PIN handshake -> complete -> rating', async () => {
+      const riderUid = 'rider_e2e_01';
+      const driverUid = 'driver_e2e_01';
+
+      // 1. Seed accounts and initial presence in RTDB
+      await testEnv.withSecurityRulesDisabled(async (adminCtx) => {
+        const db = adminCtx.firestore();
+
+        // Seed rider profile
+        await db.collection('users').doc(riderUid).set({
+          uid: riderUid,
+          full_name: 'Nour El-Din (Rider)',
+          phone: '+201011112222',
+          role: 'rider',
+          gender: 'female',
+          is_active: true,
+          created_at: new Date(),
+        });
+
+        // Seed driver profile, user, vehicle
+        await db.collection('drivers').doc(driverUid).set({
+          driver_id: driverUid,
+          national_id_number: '29801011234567',
+          license_number: 'LIC-CAIRO-7788',
+          status: 'approved',
+          is_busy: false,
+          is_online: true,
+          wallet_balance_egp: 500.0,
+          rating_avg: 4.90,
+          total_ratings: 10,
+        });
+        await db.collection('users').doc(driverUid).set({
+          uid: driverUid,
+          full_name: 'Captain Salma (Driver)',
+          phone: '+201099998888',
+          role: 'driver',
+          gender: 'female',
+          is_active: true,
+        });
+        await db.collection('vehicles').doc(driverUid).set({
+          driver_id: driverUid,
+          plate_number: 'CAIRO-7788',
+          make: 'Hyundai',
+          model: 'Elantra',
+        });
+
+        // Seed driver presence in Realtime Database within 1 km of Tahrir Square
+        await admin.database().ref(`driver_locations/${driverUid}`).set({
+          driver_id: driverUid,
+          lat: 30.0444,
+          lng: 31.2357,
+          heading: 45.0,
+          speed: 15.0,
+          is_online: true,
+          is_busy: false,
+          status: 'approved',
+          gender: 'female',
+          gender_verified: true,
+          updated_at: Date.now(),
+        });
+      });
+
+      // 2. Rider requests ride via production executeRequestRide
+      const requestResult = await executeRequestRide(riderUid, {
+        tier: 'standard',
+        pickup_address: 'Tahrir Square, Downtown Cairo',
+        pickup_lat: 30.0444,
+        pickup_lng: 31.2357,
+        dropoff_address: 'AUC New Cairo Campus',
+        dropoff_lat: 30.0195,
+        dropoff_lng: 31.4988,
+        payment_method: 'cash',
+      });
+
+      assert.ok(requestResult.ride_id, 'Ride ID must be generated');
+      assert.ok(requestResult.fare_egp >= 25.0, 'Fare must meet minimum Cairo fare floor');
+      assert.ok(/^\d{4}$/.test(requestResult.pin), 'PIN must be 4 digits');
+      const rideId = requestResult.ride_id;
+      const secretPin = requestResult.pin;
+
+      // 3. Verify targeted offer generated for eligible driver
+      let offerId = null;
+      await testEnv.withSecurityRulesDisabled(async (adminCtx) => {
+        const offersSnap = await adminCtx.firestore().collection('ride_offers')
+          .where('ride_id', '==', rideId)
+          .where('driver_id', '==', driverUid)
+          .get();
+        assert.equal(offersSnap.docs.length, 1, 'Targeted offer must be created for nearby eligible driver');
+        offerId = offersSnap.docs[0].id;
+        assert.equal(offersSnap.docs[0].data().status, 'pending');
+      });
+
+      // 4. Driver accepts ride via production executeAcceptRide
+      const acceptResult = await executeAcceptRide(driverUid, offerId);
+      assert.equal(acceptResult.success, true);
+      assert.equal(acceptResult.ride_id, rideId);
+
+      // Verify ride transitioned to 'accepted' and driver marked busy
+      await testEnv.withSecurityRulesDisabled(async (adminCtx) => {
+        const rideSnap = await adminCtx.firestore().collection('rides').doc(rideId).get();
+        assert.equal(rideSnap.data().status, 'accepted');
+        assert.equal(rideSnap.data().driver_id, driverUid);
+
+        const driverSnap = await adminCtx.firestore().collection('drivers').doc(driverUid).get();
+        assert.equal(driverSnap.data().is_busy, true);
+      });
+
+      // 5. Driver marks arrived via production executeMarkArrived
+      await admin.database().ref(`driver_locations/${driverUid}`).update({
+        lat: 30.0444, // Exact pickup coordinates
+        lng: 31.2357,
+        updated_at: Date.now(),
+      });
+      const arrivalResult = await executeMarkArrived(driverUid, rideId);
+      assert.equal(arrivalResult.success, true);
+
+      await testEnv.withSecurityRulesDisabled(async (adminCtx) => {
+        const rideSnap = await adminCtx.firestore().collection('rides').doc(rideId).get();
+        assert.equal(rideSnap.data().status, 'arrived');
+      });
+
+      // 6. PIN Verification Handshake via production executeVerifyPinAndStartTrip
+      // 6a. Attempt with wrong PIN decrements strikes
+      const wrongPinResult = await executeVerifyPinAndStartTrip(driverUid, rideId, '9999');
+      assert.equal(wrongPinResult.success, false);
+      assert.equal(wrongPinResult.status, 'wrong_pin');
+      assert.equal(wrongPinResult.attempts_left, 2);
+
+      // 6b. Correct PIN unlocks and starts trip
+      const correctPinResult = await executeVerifyPinAndStartTrip(driverUid, rideId, secretPin);
+      assert.equal(correctPinResult.success, true);
+      assert.equal(correctPinResult.status, 'in_progress');
+
+      await testEnv.withSecurityRulesDisabled(async (adminCtx) => {
+        const rideSnap = await adminCtx.firestore().collection('rides').doc(rideId).get();
+        assert.equal(rideSnap.data().status, 'in_progress');
+      });
+
+      // 7. Trip Completion via production executeCompleteRide
+      const completeResult = await executeCompleteRide(driverUid, rideId);
+      assert.equal(completeResult.success, true);
+      assert.ok(completeResult.driver_earnings_egp > 0);
+
+      // Verify ride status completed, driver availability restored, and wallet credited
+      await testEnv.withSecurityRulesDisabled(async (adminCtx) => {
+        const rideSnap = await adminCtx.firestore().collection('rides').doc(rideId).get();
+        assert.equal(rideSnap.data().status, 'completed');
+
+        const driverSnap = await adminCtx.firestore().collection('drivers').doc(driverUid).get();
+        assert.equal(driverSnap.data().is_busy, false);
+        assert.ok(driverSnap.data().wallet_balance_egp > 500.0, 'Driver wallet must be credited');
+      });
+
+      // 8. Mutual Rating Submission via production executeRateRide
+      const ratingResult = await executeRateRide(riderUid, rideId, 5, 'Smooth, safe, and professional trip!');
+      assert.equal(ratingResult.success, true);
+
+      await testEnv.withSecurityRulesDisabled(async (adminCtx) => {
+        const driverSnap = await adminCtx.firestore().collection('drivers').doc(driverUid).get();
+        assert.ok(driverSnap.data().rating_avg >= 4.90);
+        assert.equal(driverSnap.data().total_ratings, 11);
+      });
+    });
+  });
+
+  // ==========================================================================
+  // 8. SECURITY & FAILURE INVARIANTS (Blocker 5)
+  // ==========================================================================
+  describe('8. Security, Failure Invariants & Resilience Testing', () => {
+    it('blocks unapproved drivers from going online or receiving dispatch', async () => {
+      await testEnv.withSecurityRulesDisabled(async (adminCtx) => {
+        await adminCtx.firestore().collection('drivers').doc('driver_pending_test').set({
+          driver_id: 'driver_pending_test',
+          status: 'pending',
+          is_online: false,
+          is_busy: false,
+        });
+      });
+
+      const pendingCtx = testEnv.authenticatedContext('driver_pending_test', {
+        role: 'driver',
+        approved: false,
+      });
+
+      // Attempting to set status approved directly FAILS
+      await assertFails(pendingCtx.firestore().collection('drivers').doc('driver_pending_test').update({
+        status: 'approved',
+      }));
+    });
+
+    it('enforces cancellation availability restoration', async () => {
+      const rideId = 'ride_cancel_test_01';
+      const riderUid = 'rider_cancel_01';
+      const driverUid = 'driver_cancel_01';
+
+      await testEnv.withSecurityRulesDisabled(async (adminCtx) => {
+        const db = adminCtx.firestore();
+        await db.collection('rides').doc(rideId).set({
+          ride_id: rideId,
+          rider_id: riderUid,
+          driver_id: driverUid,
+          status: 'accepted',
+          fare_egp: 50.0,
+        });
+        await db.collection('drivers').doc(driverUid).set({
+          driver_id: driverUid,
+          status: 'approved',
+          is_busy: true,
+          current_ride_id: rideId,
+        });
+        await db.collection('rider_reservations').doc(riderUid).set({
+          status: 'active',
+          ride_id: rideId,
+        });
+      });
+
+      // Rider cancels ride
+      const cancelResult = await executeCancelRide(riderUid, rideId, 'rider', 'Changed plans');
+      assert.equal(cancelResult.success, true);
+
+      // Verify driver is un-busied and reservation released
+      await testEnv.withSecurityRulesDisabled(async (adminCtx) => {
+        const driverSnap = await adminCtx.firestore().collection('drivers').doc(driverUid).get();
+        assert.equal(driverSnap.data().is_busy, false);
+
+        const resSnap = await adminCtx.firestore().collection('rider_reservations').doc(riderUid).get();
+        assert.equal(resSnap.data().status, 'idle');
+      });
+    });
+
+    it('rejects duplicate rating submissions', async () => {
+      const rideId = 'ride_duplicate_rating_test';
+      const riderUid = 'rider_dup_01';
+      const driverUid = 'driver_dup_01';
+
+      await testEnv.withSecurityRulesDisabled(async (adminCtx) => {
+        const db = adminCtx.firestore();
+        await db.collection('rides').doc(rideId).set({
+          ride_id: rideId,
+          rider_id: riderUid,
+          driver_id: driverUid,
+          status: 'completed',
+        });
+        await db.collection('drivers').doc(driverUid).set({
+          driver_id: driverUid,
+          rating_avg: 5.0,
+          total_ratings: 1,
+        });
+      });
+
+      // First rating succeeds
+      await executeRateRide(riderUid, rideId, 5);
+
+      // Second rating by same user on same ride FAILS
+      let threw = false;
+      try {
+        await executeRateRide(riderUid, rideId, 4);
+      } catch (e) {
+        threw = true;
+        assert.match(e.message, /ALREADY_RATED/);
+      }
+      assert.ok(threw, 'Duplicate rating must be rejected');
+    });
+  });
+
+  // ==========================================================================
+  // 9. ADMIN OPERATIONS & GOVERNANCE SUITE (Blocker 6)
+  // ==========================================================================
+  describe('9. Server-Authoritative Admin Governance & Review Engine', () => {
+    it('allows verified admin to approve and suspend captains, rejecting unauthorized callers', async () => {
+      const adminUid = 'admin_master_01';
+      const driverUid = 'driver_vetting_01';
+
+      // 1. Seed admin profile in admin_users collection
+      await testEnv.withSecurityRulesDisabled(async (adminCtx) => {
+        const db = adminCtx.firestore();
+        await db.collection('admin_users').doc(adminUid).set({
+          uid: adminUid,
+          full_name: 'Super Admin',
+          role: 'admin',
+          is_active: true,
+        });
+        await db.collection('drivers').doc(driverUid).set({
+          driver_id: driverUid,
+          status: 'pending',
+          is_online: false,
+          is_busy: false,
+        });
+      });
+
+      // 2. Unauthorized caller cannot review driver
+      let unauthThrew = false;
+      try {
+        await executeAdminReviewDriver('random_user', driverUid, true);
+      } catch (e) {
+        unauthThrew = true;
+        assert.match(e.message, /FORBIDDEN/);
+      }
+      assert.ok(unauthThrew, 'Non-admin caller must be rejected from driver review');
+
+      // 3. Admin approves driver
+      const reviewResult = await executeAdminReviewDriver(adminUid, driverUid, true);
+      assert.equal(reviewResult.success, true);
+
+      // Verify driver status is now approved
+      await testEnv.withSecurityRulesDisabled(async (adminCtx) => {
+        const driverSnap = await adminCtx.firestore().collection('drivers').doc(driverUid).get();
+        assert.equal(driverSnap.data().status, 'approved');
+      });
+
+      // 4. Admin suspends driver
+      const suspendResult = await executeAdminSuspendDriver(adminUid, driverUid, 'KYC document verification anomaly');
+      assert.equal(suspendResult.success, true);
+
+      await testEnv.withSecurityRulesDisabled(async (adminCtx) => {
+        const driverSnap = await adminCtx.firestore().collection('drivers').doc(driverUid).get();
+        assert.equal(driverSnap.data().status, 'suspended');
+      });
     });
   });
 });

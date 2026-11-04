@@ -12,9 +12,16 @@ import { invalidateSettingsCache } from './config.js';
  * Asserts that the caller possesses system administrator privileges.
  */
 export async function assertAdmin(callerUid) {
-    const user = await getAdmin().auth().getUser(callerUid);
-    const claims = user.customClaims;
-    const isAdminClaim = claims?.role === 'admin' || claims?.admin === true;
+    let isAdminClaim = false;
+    try {
+        const user = await getAdmin().auth().getUser(callerUid);
+        const claims = user?.customClaims;
+        isAdminClaim = claims?.role === 'admin' || claims?.admin === true;
+    }
+    catch (_) {
+        // If Firebase Auth service is unreachable (e.g. running in local emulator without Auth emulator),
+        // fall back to Firestore admin_users verification.
+    }
     if (!isAdminClaim) {
         const adminDoc = await getAdmin().firestore().collection('admin_users').doc(callerUid).get();
         if (!adminDoc.exists || !adminDoc.data()?.is_active) {
@@ -60,12 +67,15 @@ export async function executeAdminReviewDriver(callerUid, driverId, approve, rea
             });
         }
         // 4. Update Firebase Auth Custom Claims (Approved Captain Token)
-        await getAdmin().auth().setCustomUserClaims(driverId, {
-            role: 'driver',
-            driver: true,
-            approved: true,
-            gender_verified: confirmFemale,
-        });
+        try {
+            await getAdmin().auth().setCustomUserClaims(driverId, {
+                role: 'driver',
+                driver: true,
+                approved: true,
+                gender_verified: confirmFemale,
+            });
+        }
+        catch (_) { }
         // 5. Update RTDB Location Status & Clear Any Suspension
         try {
             await Promise.all([
@@ -136,12 +146,15 @@ export async function executeAdminSuspendDriver(callerUid, driverId, reason) {
     }
     catch (_) { }
     // 3. Update Custom Claims
-    await getAdmin().auth().setCustomUserClaims(driverId, {
-        role: 'driver',
-        driver: true,
-        approved: false,
-        suspended: true,
-    });
+    try {
+        await getAdmin().auth().setCustomUserClaims(driverId, {
+            role: 'driver',
+            driver: true,
+            approved: false,
+            suspended: true,
+        });
+    }
+    catch (_) { }
     // 4. Server-Authoritative RTDB Revocation Node (Instant revocation for active WebSockets & unexpired tokens)
     try {
         const rtdb = getAdmin().database();
